@@ -21,14 +21,13 @@ Papercuts has no runtime dependencies. It needs Node.js 22 or later.
 
 ## Quick start: a site
 
-1. Run a relay (see [Run the relay](#run-the-relay)).
-2. Add one tag to the `<head>` of the page. Put it early, so that the widget sees console errors from the start.
+First, run a relay (see [Run the relay](#run-the-relay)). Then add one tag to the `<head>` of the page. Put it early, so that the widget sees console errors from the start:
 
 ```html
 <script src="https://papercuts.lab.example.com/papercuts.js" data-repo="owner/name"></script>
 ```
 
-3. Load the page. The tab "Papercut" shows at the right edge. The keyboard shortcut is `Alt+Shift+P`.
+Load the page. The tab "Papercut" shows at the right edge. The keyboard shortcut is `Alt+Shift+P`.
 
 If the relay does not answer, the page shows no tab. A public copy of the page that keeps the tag therefore shows nothing to visitors.
 
@@ -65,7 +64,7 @@ if (window.papercuts) {
 
 `report()` never throws. It returns `{ ok, issue, url, deduped }`, or `{ ok: false, error, help, queued }`. A report that the relay cannot take now waits in the browser (IndexedDB) and goes out later.
 
-The repo includes a skill for agents in `skills/papercuts/SKILL.md`, and a snippet for `AGENTS.md` in `AGENTS.md`.
+The repo includes a skill for agents (`skills/papercuts/SKILL.md`). The file `AGENTS.md` holds a block to copy into the `AGENTS.md` of a project.
 
 ## Setup: where papercuts go
 
