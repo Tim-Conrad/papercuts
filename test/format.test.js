@@ -101,3 +101,25 @@ test('context cannot break out of markers', () => {
 });
 
 test('KINDS', () => assert.deepEqual(KINDS, ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'other']));
+
+test('redacts json, gh token families, basic auth, url creds, slack', () => {
+  const cases = ['{"password":"hunter2"}', "{'api_key': 'abc123xyz'}", 'gho_abcdefgh12345678', 'ghs_abcdefgh12345678',
+    'ghu_abcdefgh12345678', 'Authorization: Basic dXNlcjpwYXNz', 'https://user:s3cret@example.com/x', 'xoxb-1234-5678-abcdefgh'];
+  for (const c of cases) {
+    const out = redact(c);
+    assert.ok(out.includes('[redacted]'), `${c} -> ${out}`);
+    assert.ok(!/hunter2|abc123xyz|abcdefgh12345678|dXNlcjpwYXNz|s3cret|abcdefgh$/.test(out), `${c} -> ${out}`);
+  }
+});
+
+test('context key cannot close the yaml fence', () => {
+  const r = ok({ kind: 'bug', text: 'x', repo: 'a/b', context: { 'a\n```\n@someone <img src=x>': 1 } }, 'human');
+  const { body } = buildIssue(r, PER);
+  const fences = body.split('\n').filter((l) => l.startsWith('```'));
+  assert.equal(fences.length, 2, body);
+  assert.ok(!/^@someone/m.test(body));
+});
+
+test('rejects dot repo names', () => {
+  for (const repo of ['a/.', 'a/..', './b']) assert.equal(normalizeReport({ kind: 'bug', text: 'x', repo }, 'agent').ok, false, repo);
+});

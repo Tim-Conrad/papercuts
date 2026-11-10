@@ -10,8 +10,18 @@ export const LIMITS = { text: 300, where: 120, field: 500, errors: 20, body: 600
 
 // Ported from pen-and-paper papercut.py (GEHEIM). sk- only at the start of a word:
 // disk-usage-report.md and task-list-view are no keys.
-const SECRET = /((?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{8,}|ghp_[A-Za-z0-9]{8,}|github_pat_\S+|Bearer\s+\S+|AKIA[0-9A-Z]{16}|(?:api[_-]?key|token|password|secret)\s*[:=]\s*\S+)/gi;
-const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const SECRET = new RegExp([
+  String.raw`(?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{8,}`,
+  String.raw`gh[opsur]_[A-Za-z0-9]{8,}`,          // ghp_ (PAT), gho_ (gh auth token), ghs_, ghu_, ghr_
+  String.raw`github_pat_\S+`,
+  String.raw`xox[abprs]-[A-Za-z0-9-]{8,}`,        // Slack
+  String.raw`(?:Bearer|Basic)\s+\S+`,
+  String.raw`AKIA[0-9A-Z]{16}`,
+  String.raw`(?<=:\/\/)[^\s/:@]+:[^\s/@]+(?=@)`,  // user:password in a URL
+  // key=value and JSON "key": "value", as console.error(JSON) logs it
+  String.raw`["']?(?:api[_-]?key|token|password|passwd|secret)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,}]+)`,
+].join('|'), 'gi');
+const REPO = /^(?!\.\.?\/)[A-Za-z0-9_.-]+\/(?!\.\.?$)[A-Za-z0-9_.-]+$/;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export function redact(text) {
@@ -83,9 +93,13 @@ function yamlValue(v) {
   return JSON.stringify(v);
 }
 
+// A key from the page could hold a newline and close the code fence, so quote any unusual key.
+const yamlKey = (k) => (/^[\w.-]+$/.test(k) ? k : JSON.stringify(k));
+
 function yamlLines(obj, indent = '') {
   const lines = [];
-  for (const [k, v] of Object.entries(obj)) {
+  for (const [rawKey, v] of Object.entries(obj)) {
+    const k = yamlKey(rawKey);
     if (v === undefined || v === '') continue;
     if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
       lines.push(`${indent}${k}:`, ...yamlLines(v, indent + '  '));

@@ -84,6 +84,17 @@ def main():
                 texts = [i["body"] for i in control(ctl, "/mode?m=ok")["issues"]]
                 check(f"{width}: queued reports sent later", st.get("queued") == 0 and any("queued while logged out" in t for t in texts) and any("queued while relay down" in t for t in texts), str(st))
 
+                control(ctl, "/fail?code=404")
+                perm = page.evaluate("papercuts.report({kind: 'bug', text: 'repo typo ' + innerWidth, from: 'human'})")
+                st = page.evaluate("papercuts.status()")
+                check(f"{width}: permanent github error is not queued", perm.get("queued") is False and perm.get("ok") is False and st.get("queued") == 0, f"{perm} {st}")
+                control(ctl, "/fail?code=0")
+
+                control(ctl, "/mode?m=down")
+                lost = page.evaluate("(() => { indexedDB.open = () => { throw new Error('blocked'); }; return papercuts.report({kind: 'bug', text: 'no storage ' + innerWidth, from: 'human'}); })()")
+                check(f"{width}: failed save is not reported as queued", lost.get("queued") is False and lost.get("ok") is False, str(lost))
+                control(ctl, "/mode?m=ok")
+
                 color = host.locator(".panel h2").evaluate("e => getComputedStyle(e).color")
                 check(f"{width}: host css does not leak", color != "rgb(255, 0, 0)", color)
                 sideways = page.evaluate("document.documentElement.scrollWidth > innerWidth")

@@ -27,6 +27,7 @@ const pagePort = await listen(http.createServer((req, res) => { res.writeHead(20
 const controlPort = await listen(http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/mode') mode = url.searchParams.get('m');
+  if (url.pathname === '/fail') gh.state.fail = Number(url.searchParams.get('code')) || null;
   res.writeHead(200, { 'content-type': 'application/json' });
   res.end(JSON.stringify({ mode, issues: gh.state.issues['Tim-Conrad/shop'] || [] }));
 }));

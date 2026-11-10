@@ -106,11 +106,11 @@
       return await new Promise((resolve, reject) => {
         const tx = d.transaction('reports', mode);
         const req = fn(tx.objectStore('reports'));
-        tx.oncomplete = () => resolve(req && req.result);
+        tx.oncomplete = () => resolve(mode === 'readonly' ? req.result : true);
         tx.onerror = () => reject(tx.error);
       });
     } catch (_) {
-      return mode === 'readonly' ? [] : undefined;
+      return mode === 'readonly' ? [] : false;
     }
   }
   const enqueue = (payload) => queueOp('readwrite', (s) => s.put(payload));
@@ -134,7 +134,7 @@
     }
     let data;
     try { data = await res.json(); } catch (_) { return { delivered: false, transient: true, reason: 'offline' }; }
-    if (res.status >= 500) return { delivered: false, transient: true, reason: 'github', data };
+    if (res.status >= 500 && data.retry !== false) return { delivered: false, transient: true, reason: 'github', data };
     if (!res.ok) return { delivered: false, transient: false, data };
     return { delivered: true, data };
   }
@@ -147,7 +147,9 @@
 
   let ui = { badge() {}, notice() {}, open() {} };
   let flushing = false;
-  async function flush() {
+  // All tabs of the site share one queue. The lock keeps two tabs from sending the same report at once.
+  const flush = () => (navigator.locks ? navigator.locks.request('papercuts-flush', { ifAvailable: true }, (lock) => lock && flushNow()) : flushNow());
+  async function flushNow() {
     if (flushing) return;
     flushing = true;
     try {
@@ -156,7 +158,7 @@
         if (r.delivered || !r.transient) {
           await dequeue(payload.report.id);
         } else {
-          if (r.reason === 'login') ui.notice('Log in again, then the report goes out.');
+          if (r.reason === 'login') ui.notice('Log in again at your login page, then the report goes out.');
           break;
         }
       }
@@ -181,7 +183,9 @@
     const r = await send(payload);
     if (r.delivered) return r.data;
     if (!r.transient) return Object.assign({ ok: false, queued: false }, r.data);
-    await enqueue(payload);
+    if (!(await enqueue(payload))) {
+      return { ok: false, queued: false, error: `${REASON[r.reason].error}, and this browser cannot save the report`, help: 'copy the text and send it again later' };
+    }
     ui.badge();
     return Object.assign({ ok: false, queued: true }, REASON[r.reason]);
   }

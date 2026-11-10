@@ -34,6 +34,7 @@ test('serves widget no-cache', async () => {
 test('rejects foreign origin', async () => {
   const res = await post(report(), { origin: 'https://evil.example' });
   assert.equal(res.status, 403);
+  assert.equal(res.headers.get('access-control-allow-origin'), 'https://evil.example');
   assert.equal(gh.state.requests.length, 0);
 });
 
@@ -117,4 +118,49 @@ test('config defaults', () => {
   const f = loadConfig({ PAPERCUTS_TOKEN_FILE: '/run/secrets/t', PAPERCUTS_TARGET: 'central', PAPERCUTS_CENTRAL_REPO: 'a/inbox' });
   assert.deepEqual(f.credential, { source: 'file', path: '/run/secrets/t' });
   assert.deepEqual(f.target, { mode: 'central', centralRepo: 'a/inbox' });
+});
+
+test('github 404 is a permanent 4xx with retry false', async () => {
+  gh.state.fail = 404;
+  const res = await post(report());
+  assert.equal(res.status, 422);
+  assert.equal((await res.json()).retry, false);
+});
+
+test('github 5xx stays 502 with retry true', async () => {
+  gh.state.fail = 503;
+  const res = await post(report());
+  assert.equal(res.status, 502);
+  assert.equal((await res.json()).retry, true);
+});
+
+test('foreign origin 403 carries cors so the browser can read it', async () => {
+  const res = await post(report(), { origin: 'https://evil.example' });
+  assert.equal(res.status, 403);
+  assert.equal(res.headers.get('access-control-allow-origin'), 'https://evil.example');
+  assert.equal((await res.json()).retry, false);
+});
+
+test('same id sent twice at once makes one issue', async () => {
+  const body = report({ id: 'same-id-1' });
+  const [a, b] = await Promise.all([post(body), post(body)]);
+  const [da, db] = [await a.json(), await b.json()];
+  assert.equal(da.issue, db.issue);
+  assert.equal(gh.state.issues['Tim-Conrad/shop'].length, 1);
+});
+
+test('utf-8 split across chunks survives', async () => {
+  const { request } = await import('node:http');
+  const payload = Buffer.from(JSON.stringify(report({ text: 'Knopf überlappt' })));
+  const cut = payload.indexOf(Buffer.from('ü')) + 1;
+  const data = await new Promise((resolve, reject) => {
+    const req = request(base + '/report', { method: 'POST', headers: { 'content-type': 'text/plain', origin: ALLOWED } }, (res) => {
+      let t = ''; res.on('data', (c) => { t += c; }); res.on('end', () => resolve(JSON.parse(t)));
+    });
+    req.on('error', reject);
+    req.write(payload.subarray(0, cut));
+    setTimeout(() => req.end(payload.subarray(cut)), 20);
+  });
+  assert.equal(data.ok, true);
+  assert.ok(gh.state.issues['Tim-Conrad/shop'][0].title.includes('überlappt'));
 });
