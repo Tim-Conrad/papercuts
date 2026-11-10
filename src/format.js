@@ -1,0 +1,124 @@
+// The one issue format for the widget, the JS API and the CLI.
+// Validate and redact here, before anything leaves the machine. The relay runs the same code again.
+import { createHash, randomUUID } from 'node:crypto';
+
+export const KINDS = ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'other'];
+export const WIDGET_KINDS = ['bug', 'ux', 'copy', 'other'];
+export const SOURCES = ['human', 'agent'];
+
+export const LIMITS = { text: 300, where: 120, field: 500, errors: 20, body: 60000, title: 70 };
+
+// Ported from pen-and-paper papercut.py (GEHEIM). sk- only at the start of a word:
+// disk-usage-report.md and task-list-view are no keys.
+const SECRET = /((?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{8,}|ghp_[A-Za-z0-9]{8,}|github_pat_\S+|Bearer\s+\S+|AKIA[0-9A-Z]{16}|(?:api[_-]?key|token|password|secret)\s*[:=]\s*\S+)/gi;
+const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function redact(text) {
+  return String(text).replace(SECRET, '[redacted]');
+}
+
+// A user string must not open or close an HTML comment, or it could fake a marker.
+function clean(text) {
+  return redact(text).replace(/<!--/g, '<! --').replace(/-->/g, '-- >');
+}
+
+export function shorten(text, limit) {
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}… (truncated, ${text.length} chars total)`;
+}
+
+function fail(error, help) {
+  return { ok: false, error, help };
+}
+
+// Redact and shorten every string in the context, at any depth.
+function cleanContext(value, depth = 0) {
+  if (depth > 6) return '[too deep]';
+  if (typeof value === 'string') return shorten(clean(value), LIMITS.field);
+  if (Array.isArray(value)) return value.slice(0, 200).map((v) => cleanContext(v, depth + 1));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value).slice(0, 100)) out[clean(k).slice(0, 80)] = cleanContext(v, depth + 1);
+    return out;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value;
+  return undefined;
+}
+
+export function normalizeReport(input, from) {
+  if (!SOURCES.includes(from)) return fail(`unknown source "${from}"`, 'use one of: human, agent');
+  const src = input && typeof input === 'object' ? input : {};
+  const kind = String(src.kind ?? '').trim();
+  if (!KINDS.includes(kind)) return fail(`unknown kind "${kind}"`, `use one of: ${KINDS.join(', ')}`);
+  const text = String(src.text ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return fail('text is empty', 'write one sentence about the papercut');
+  if (text.length > LIMITS.text) return fail(`text has ${text.length} chars, the limit is ${LIMITS.text}`, 'write one shorter sentence');
+  const repo = String(src.repo ?? '').trim();
+  if (!REPO.test(repo)) return fail(`repo "${repo}" is not owner/name`, 'give the repo as owner/name, for example Tim-Conrad/papercuts');
+  const id = src.id == null ? randomUUID() : String(src.id);
+  if (!ID.test(id)) return fail('id must be 1-64 chars of A-Z, a-z, 0-9, _ or -', 'leave out the id, papercuts makes one');
+  const where = shorten(clean(String(src.where ?? '').replace(/\s+/g, ' ').trim()), LIMITS.where);
+  const raw = src.context && typeof src.context === 'object' && !Array.isArray(src.context) ? { ...src.context } : {};
+  if (Array.isArray(raw.errors) && raw.errors.length > LIMITS.errors) {
+    raw.errors = [`(${raw.errors.length - LIMITS.errors} more)`, ...raw.errors.slice(-LIMITS.errors)];
+  }
+  const context = cleanContext(raw);
+  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context } };
+}
+
+export function fingerprint(report) {
+  const norm = (s) => String(s).toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+  return createHash('sha256').update(`${report.kind}|${norm(report.where)}|${norm(report.text)}`).digest('hex').slice(0, 16);
+}
+
+export function labelsFor(report, target) {
+  const labels = ['papercut', `from:${report.from}`, `kind:${report.kind}`];
+  if (target?.mode === 'central') labels.push(`project:${report.repo}`);
+  return labels;
+}
+
+function yamlValue(v) {
+  if (typeof v === 'string' && /^[^:#\n"'{}\[\],&*!|>%@`-][^:#\n"{}\[\]]*$/.test(v) && v.trim() === v) return v;
+  return JSON.stringify(v);
+}
+
+function yamlLines(obj, indent = '') {
+  const lines = [];
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === '') continue;
+    if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length) {
+      lines.push(`${indent}${k}:`, ...yamlLines(v, indent + '  '));
+    } else if (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string')) {
+      lines.push(`${indent}${k}:`, ...v.map((x) => `${indent}  - ${JSON.stringify(x)}`));
+    } else {
+      lines.push(`${indent}${k}: ${yamlValue(v)}`);
+    }
+  }
+  return lines;
+}
+
+export function buildIssue(report, target) {
+  const title = `papercut: ${report.text.slice(0, LIMITS.title)}`;
+  const head = { kind: report.kind, from: report.from, where: report.where, repo: report.repo };
+  let meta = yamlLines({ ...head, context: report.context }).join('\n');
+  const markers = [`<!-- papercut-id: ${report.id} -->`];
+  if (report.from === 'agent') markers.push(`<!-- papercut-fp: ${fingerprint(report)} -->`);
+  const room = LIMITS.body - report.text.length - markers.join('\n').length - 40;
+  meta = shorten(meta, room);
+  const body = `${report.text}\n\n\`\`\`yaml\n${meta}\n\`\`\`\n\n${markers.join('\n')}\n`;
+  return { title, body, labels: labelsFor(report, target) };
+}
+
+export function parseMarkers(body) {
+  const last = (re) => {
+    const all = [...String(body ?? '').matchAll(re)];
+    return all.length ? all[all.length - 1][1] : undefined;
+  };
+  const out = {};
+  const id = last(/<!-- papercut-id: ([A-Za-z0-9_-]+) -->/g);
+  const fp = last(/<!-- papercut-fp: ([0-9a-f]{16}) -->/g);
+  if (id) out.id = id;
+  if (fp) out.fp = fp;
+  return out;
+}
