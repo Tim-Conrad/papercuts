@@ -10,7 +10,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test test/*.test.js",
+    "check:browser": "uv run --no-project --with playwright python3 test/browser/check_widget.py"
   },
   "files": [
     "bin",

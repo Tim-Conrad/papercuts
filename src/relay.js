@@ -33,10 +33,6 @@ export function createRelay(config, { client }) {
       if (url.pathname !== '/report') return send(404, { ok: false, error: 'not found', help: 'the relay has /papercuts.js, /status and /report' });
       if (req.method !== 'POST') return send(405, { ok: false, error: 'use POST', help: 'POST a JSON text body to /report' });
       if (!allowed) return send(403, { ok: false, error: 'origin not allowed', help: 'add the site origin to PAPERCUTS_ORIGINS' });
-      if (config.testRedirect) {
-        res.writeHead(302, { location: 'https://auth.example/login' });
-        return res.end();
-      }
       const type = String(req.headers['content-type'] || '').split(';')[0].trim();
       if (type !== 'text/plain') return send(415, { ok: false, error: 'content type must be text/plain', help: 'send JSON text as text/plain, so that no preflight happens' });
       let raw = '';
