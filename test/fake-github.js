@@ -34,7 +34,7 @@ export async function fakeGithub({ token = 'test-token-123' } = {}) {
       const label = url.searchParams.get('labels');
       const per = Number(url.searchParams.get('per_page') || 30);
       const page = Number(url.searchParams.get('page') || 1);
-      let items = list.filter((i) => (st === 'all' || i.state === st) && (!label || i.labels.some((l) => l.name === label)));
+      let items = list.filter((i) => (st === 'all' || i.state === st) && (!label || label.split(',').every((want) => i.labels.some((l) => l.name === want))));
       items = [...items].sort((a, b) => b.number - a.number);
       return send(200, items.slice((page - 1) * per, page * per));
     }

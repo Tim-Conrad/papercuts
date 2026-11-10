@@ -6,7 +6,20 @@
   "license": "MIT",
   "author": "Tim Conrad",
   "repository": "github:Tim-Conrad/papercuts",
-  "engines": { "node": ">=22" },
-  "scripts": { "test": "node --test" },
-  "files": ["bin", "src", "widget", "skills", "AGENTS.md"]
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "files": [
+    "bin",
+    "src",
+    "widget",
+    "skills",
+    "AGENTS.md"
+  ],
+  "bin": {
+    "papercuts": "bin/papercuts.js"
+  }
 }

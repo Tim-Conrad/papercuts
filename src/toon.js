@@ -9,6 +9,13 @@ function cell(value) {
   return text;
 }
 
+// After "key: " a value only needs quotes when it is empty, has a newline or edge spaces.
+function scalar(value) {
+  if (typeof value !== 'string') return cell(value);
+  if (value === '' || /\n/.test(value) || value.trim() !== value) return JSON.stringify(value);
+  return value;
+}
+
 function lines(key, value, indent) {
   if (Array.isArray(value)) {
     if (!value.length) return [`${indent}${key}[0]:`];
@@ -23,7 +30,7 @@ function lines(key, value, indent) {
   if (value && typeof value === 'object') {
     return [`${indent}${key}:`, ...Object.entries(value).flatMap(([k, v]) => lines(k, v, indent + '  '))];
   }
-  return [`${indent}${key}: ${cell(value)}`];
+  return [`${indent}${key}: ${scalar(value)}`];
 }
 
 export function toon(obj) {
