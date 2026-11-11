@@ -330,7 +330,7 @@ test('report: fields, labels and assignees of the config go into the issue', asy
 
 test('report: a missing required field or an unknown field gives 400 with help', async () => {
   withConfig();
-  let res = await post(report({ fields: { device: 'phone' } }));
+  let res = await post({ ...report({ fields: { device: 'phone' } }), from: 'agent' });
   assert.equal(res.status, 400);
   let j = await res.json();
   assert.match(j.error, /"expected" is required/);
@@ -339,4 +339,10 @@ test('report: a missing required field or an unknown field gives 400 with help',
   j = await res.json();
   assert.match(j.error, /unknown field "nope"/);
   assert.match(j.help, /expected, device/);
+});
+
+test('report: a person without the required field still files the report', async () => {
+  withConfig();
+  const res = await post(report({ text: 'just feedback' }));
+  assert.equal(res.status, 200, await res.clone().text());
 });

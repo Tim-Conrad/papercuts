@@ -65,7 +65,7 @@ test('fields: unknown, missing required and bad option give an error with help',
   assert.equal(unknown.ok, false);
   assert.match(unknown.error, /unknown field "nope"/);
   assert.match(unknown.help, /expected, device/);
-  const missing = normalizeFields({ device: 'phone' }, CFG);
+  const missing = normalizeFields({ device: 'phone' }, CFG, 'agent');
   assert.match(missing.error, /field "expected" is required/);
   const bad = normalizeFields({ expected: 'x', device: 'watch' }, CFG);
   assert.match(bad.error, /"watch" is not an option of "device"/);
@@ -88,4 +88,11 @@ test('a config without read access gives the defaults and a warning, not an erro
   assert.match(c.warnings[0], /no read access/);
   const down = { getFile: async () => { const e = new Error('no answer'); e.status = 0; throw e; } };
   await assert.rejects(loadRepoConfig(down, 'a/b'));
+});
+
+test('fields: a person is never blocked by a required field, agents fill them', () => {
+  const r = normalizeFields({}, CFG, 'human');
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.fields, {});
+  assert.equal(normalizeFields({}, CFG, 'agent').ok, false);
 });

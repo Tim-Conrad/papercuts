@@ -388,7 +388,7 @@ export async function run(argv, ctx = {}) {
       if (!norm.ok) throw runError(norm.error, norm.help);
       const client = ctx.client || githubClient({ credential: credentialFrom(config.credential) });
       const repoCfg = (await loadRepoConfig(client, norm.report.repo)).config;
-      const fields = normalizeFields(payload.report.fields, repoCfg);
+      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from);
       if (!fields.ok) throw runError(fields.error, fields.help);
       norm.report.fields = fields.fields;
       const r = await fileReport(norm.report, { client, target: config.target, config: repoCfg });

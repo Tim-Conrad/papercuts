@@ -113,7 +113,8 @@ export function checkConfig(raw) {
 }
 
 // Check the field values of one report against the config of its repo.
-export function normalizeFields(input, config) {
+// Fields are for agents: a person only gives feedback, so a required field never blocks a person.
+export function normalizeFields(input, config, from = 'agent') {
   const fields = config.fields || [];
   const values = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const ids = fields.map((f) => f.id);
@@ -130,7 +131,7 @@ export function normalizeFields(input, config) {
     out[k] = text;
   }
   for (const f of fields) {
-    if (f.required && !out[f.id]) return { ok: false, error: `field "${f.id}" is required (${f.label})`, help };
+    if (from === 'agent' && f.required && !out[f.id]) return { ok: false, error: `field "${f.id}" is required (${f.label})`, help };
   }
   return { ok: true, fields: out };
 }

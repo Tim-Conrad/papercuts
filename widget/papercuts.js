@@ -15,7 +15,6 @@
   // The ticket config of the repo (.github/papercuts.json), from the relay. Page attributes win over it.
   let repoCfg = null;
   const kindsList = () => (repoCfg && repoCfg.kinds && repoCfg.kinds.length ? repoCfg.kinds : KINDS);
-  const fieldList = () => (repoCfg && repoCfg.fields) || [];
   const presetList = () => (repoCfg && repoCfg.presets) || [];
   // ?papercuts=download or data-mode="download": no relay, the report becomes a file for `papercuts import`.
   const DOWNLOAD = new URLSearchParams(location.search).get('papercuts') === 'download' || cfg.mode === 'download';
@@ -26,7 +25,7 @@
   // A missing word falls back to English.
   const T = {
     en: {
-      tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Pick', parent: 'Parent', child: 'Smaller',
+      tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Point at something', parent: 'Parent', child: 'Smaller',
       whole: 'Whole view', wholeSub: 'The part of the page that you see', kind: 'Kind', placeholder: 'What is wrong? One sentence is enough.', send: 'Send', download: 'Download report',
       close: 'Close', sending: 'Sending…', sent: 'Sent: ', writeFirst: 'Write one sentence first.',
       saved: 'Saved in this browser. It goes out later.', savedLogin: 'Saved in this browser. Log in again, then it goes out.',
@@ -45,7 +44,7 @@
       micNetwork: 'Speech input needs a network connection. Type instead.', micFailed: 'Speech input failed. Type instead.', pinLabel: (n) => `Pin ${n}: what is here?`,
     },
     de: {
-      tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer', child: 'Kleiner',
+      tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Auf etwas zeigen', parent: 'Größer', child: 'Kleiner',
       whole: 'Ganze Ansicht', wholeSub: 'Der Teil der Seite, den du siehst', kind: 'Art', placeholder: 'Was stimmt nicht? Ein Satz reicht.', send: 'Senden', download: 'Als Datei speichern',
       close: 'Schließen', sending: 'Sende…', sent: 'Gesendet: ', writeFirst: 'Schreib zuerst einen Satz.',
       saved: 'Im Browser gespeichert. Geht später raus.', savedLogin: 'Im Browser gespeichert. Melde dich neu an, dann geht es raus.',
@@ -658,6 +657,7 @@
       els.targetSub.textContent = el ? (text ? `“${text.slice(0, 60)}${text.length > 60 ? '…' : ''}”` : t.pickedSub) : t.wholeSub;
       els.target.title = el ? cssPath(el) : '';
       els.parent.hidden = els.child.hidden = els.whole.hidden = !el;
+      if (els.where) els.where.hidden = !el;
       els.parent.disabled = !el || !el.parentElement || el.parentElement === document.documentElement || el.parentElement === document.body;
       els.child.disabled = !chain.length;
       if (els.markPic) els.markPic.hidden = !pickedImage();
@@ -716,8 +716,16 @@
       if (host.parentNode !== target) target.append(host);
     }
 
+    // The element that the person touched last, shortly before opening, is what the feedback is about.
+    let lastTap = null;
+    addEventListener('pointerdown', (e) => {
+      if (picking || e.composedPath().includes(host)) return;
+      if (e.target && e.target.nodeType === 1 && e.target !== document.documentElement && e.target !== document.body) lastTap = { el: e.target, at: Date.now() };
+    }, true);
+
     function open() {
       if (isHidden()) return;
+      if (!picked && lastTap && Date.now() - lastTap.at < 15000 && lastTap.el.isConnected) { picked = lastTap.el; lastTap = null; }
       rehome();
       if (doneState) showForm();
       els.panel.hidden = false;
@@ -1001,13 +1009,9 @@
     // ---- form helpers ----
     // No kind is chosen at first: a report without a choice is filed as "other", not as a wrong "bug".
     let kind = null;
-    function setKind(k) {
-      kind = k;
-      [...els.kinds.children].forEach((b, i) => {
-        b.setAttribute('aria-checked', String(b.dataset.kind === k));
-        b.tabIndex = (k ? b.dataset.kind === k : i === 0) ? 0 : -1;
-      });
-    }
+    let draftFields = null;
+    // The kind is for agents. People do not choose it: a preset or a draft can set it, else it is "other".
+    function setKind(k) { kind = k; }
     function textChanged() {
       const n = els.text.value.length;
       els.counter.textContent = n >= 200 ? `${n} / 300` : '';
@@ -1042,23 +1046,14 @@
       setStatus();
     }
 
-    const clearForm = () => { els.text.value = ''; textChanged(); forgetMark(); for (const f of Object.values(fieldEls)) f.clear(); };
+    // A new feedback starts clean: no text, no picture, no element, no draft kind or fields.
+    const clearForm = () => { els.text.value = ''; textChanged(); forgetMark(); setTarget(null); kind = null; draftFields = null; };
 
     async function submit() {
       const text = els.text.value.trim();
       if (!text) { setStatus('warn', t.writeFirst); els.text.focus(); return; }
-      const fields = {};
-      for (const f of fieldList()) {
-        const v = fieldEls[f.id].get();
-        if (v) fields[f.id] = v;
-        else if (f.required) {
-          fieldEls[f.id].wrap.classList.add('invalid');
-          setStatus('warn', t.fieldRequired(f.label));
-          fieldEls[f.id].focus();
-          return;
-        }
-      }
-      const input = { kind: kind || 'other', text, from: 'human', ...(mark || {}), ...(Object.keys(fields).length ? { fields } : {}) };
+      // People give feedback only. Agents triage it: no kind means "other", fields come only from a draft.
+      const input = { kind: kind || 'other', text, from: 'human', ...(mark || {}), ...(draftFields ? { fields: draftFields } : {}) };
       if (DOWNLOAD) {
         downloadReport(input, picked);
         clearForm();
@@ -1141,17 +1136,6 @@
     els.whole = iconBtn('whole mini', 'reset', t.whole, () => setTarget(null));
     els.pick = h('button', { type: 'button', class: 'pick pill', onclick: startPicking }, icon('pick'), t.pick);
 
-    els.kinds = h('div', { class: 'kinds', role: 'radiogroup', 'aria-label': t.kind },
-      ...kindsList().map((k) => h('button', { type: 'button', role: 'radio', 'data-kind': k, 'aria-checked': 'false', onclick: () => setKind(k) }, t.kinds[k] || k)));
-    els.kinds.addEventListener('keydown', (e) => {
-      const KS = kindsList();
-      const i = kind ? KS.indexOf(kind) : -1;
-      const next = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
-      if (!next) return;
-      e.preventDefault();
-      setKind(KS[(i + next + KS.length) % KS.length]);
-      els.kinds.querySelector(`[data-kind="${kind}"]`).focus();
-    });
 
     els.text = h('textarea', { maxlength: '300', rows: '3', placeholder: t.placeholder, 'aria-label': t.title });
     els.counter = h('span', { class: 'counter', 'aria-live': 'polite' });
@@ -1169,24 +1153,6 @@
 
     els.presets = h('div', { class: 'presets' }, ...presetList().map((p) => h('button', { type: 'button', onclick: () => { setKind(kindsList().includes(p.kind) ? p.kind : kind); els.text.value = p.text; textChanged(); if (!matchMedia('(pointer: coarse)').matches) els.text.focus(); } }, p.text)));
     els.presets.hidden = !presetList().length;
-    const fieldEls = {};
-    els.fields = h('div', { class: 'fields' }, ...fieldList().map((f) => {
-      const title = h('span', {}, f.label, ...(f.required ? [h('span', { class: 'req' }, t.required)] : []));
-      let control;
-      if (f.options) {
-        control = h('div', { class: 'options', role: 'radiogroup', 'aria-label': f.label }, ...f.options.map((o) => h('button', { type: 'button', role: 'radio', 'aria-checked': 'false', 'data-option': o,
-          onclick: (e) => { for (const b of control.children) b.setAttribute('aria-checked', String(b === e.currentTarget && b.getAttribute('aria-checked') !== 'true')); wrap.classList.remove('invalid'); } }, o)));
-        fieldEls[f.id] = { get: () => (control.querySelector('[aria-checked="true"]') || {}).dataset?.option || '', clear: () => { for (const b of control.children) b.setAttribute('aria-checked', 'false'); }, focus: () => control.firstChild && control.firstChild.focus() };
-      } else {
-        control = h('input', { type: 'text', maxlength: '300', 'aria-label': f.label });
-        control.addEventListener('input', () => wrap.classList.remove('invalid'));
-        fieldEls[f.id] = { get: () => control.value.trim(), clear: () => { control.value = ''; }, focus: () => control.focus() };
-      }
-      const wrap = h(f.options ? 'div' : 'label', { class: 'fld', 'data-field': f.id }, title, control);
-      fieldEls[f.id].wrap = wrap;
-      return wrap;
-    }));
-    els.fields.hidden = !fieldList().length;
 
     els.markPic = h('button', { type: 'button', class: 'mark-pic pill', hidden: '', onclick: markPicture }, icon('image'), t.markPic);
     els.markScreen = h('button', { type: 'button', class: 'mark-screen pill', onclick: markScreen }, icon('screen'), t.markScreen);
@@ -1219,14 +1185,14 @@
     els.listBtn = h('button', { type: 'button', class: 'list pill', hidden: '', onclick: () => showList(els.listView.hidden) }, icon('list'), els.listLabel, els.listDot);
     els.items = h('ul', { class: 'items' });
     els.listView = h('div', { hidden: '' }, els.items);
+    // One input. The element, the place, the errors and the page state come along in the background.
+    els.where = h('div', { class: 'where', hidden: '' }, icon('frame'), els.target, els.parent, els.child, els.whole);
     els.form = h('div', { class: 'body form-area' },
-      h('div', { class: 'where' }, icon('frame'), els.target, els.parent, els.child, els.whole, els.pick),
-      els.kinds,
       els.speakWrap,
       els.presets,
       h('div', { class: 'field' }, els.text, h('div', { class: 'fieldbar' }, els.mic, els.counter)),
-      els.fields,
-      h('div', { class: 'attach' }, els.markPic, els.markScreen),
+      els.where,
+      h('div', { class: 'attach' }, els.pick, els.markPic, els.markScreen),
       els.previewRow);
     if (VOICE_FIRST) els.form.classList.add('voice');
     els.listView.className = 'body';
@@ -1344,13 +1310,7 @@
         if (draft && typeof draft === 'object') {
           if (draft.kind && kindsList().includes(draft.kind)) setKind(draft.kind);
           if (typeof draft.text === 'string') { els.text.value = draft.text.slice(0, 300); textChanged(); }
-          for (const [id, v] of Object.entries(draft.fields || {})) {
-            const f = fieldEls[id];
-            if (!f) continue;
-            const ctl = f.wrap.querySelector('input');
-            if (ctl) ctl.value = String(v);
-            else for (const b of f.wrap.querySelectorAll('[data-option]')) b.setAttribute('aria-checked', String(b.dataset.option === v));
-          }
+          if (draft.fields && typeof draft.fields === 'object') draftFields = { ...draft.fields };
         }
         open();
       },
