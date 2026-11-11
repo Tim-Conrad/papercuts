@@ -38,7 +38,8 @@ Optional attributes on the script tag:
 | `data-repo` | Required. The repo for the issues, as `owner/name`. |
 | `data-lang` | `en` (default) or `de`. The language of the widget. The JS API answers in English. |
 | `data-commit`, `data-branch` | The version of the site. The issue shows them. |
-| `data-storage` | A comma list of `localStorage` keys to include. By default the widget sends no `localStorage`, because it can hold tokens or private data. |
+| `data-storage` | A comma list of `localStorage` keys to include, or `*` for all keys (at most 50). By default the widget sends no `localStorage`, because it can hold tokens or private data. |
+| `data-storage-skip` | With `data-storage="*"`: a comma list of keys to leave out, for example a room code. |
 | `data-mode` | `download`: see [Without a relay](#without-a-relay). |
 
 Hooks for the page:
@@ -46,7 +47,7 @@ Hooks for the page:
 - `window.papercutsContext = () => ({ openCard: "c12" })` adds your own fields to each report.
 - `window.papercutsHidden = () => true` hides the tab, for example in a print view or a kiosk mode. The widget asks once per second.
 
-In a modal `<dialog>`, the widget moves into the dialog, so that it stays usable.
+In a modal `<dialog>` or in fullscreen, the widget moves into the dialog or the fullscreen element, so that it stays usable. After "Parent", "Smaller" goes back down to the element that you picked.
 
 ### Load papercuts only where a relay exists
 

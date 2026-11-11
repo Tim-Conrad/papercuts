@@ -51,7 +51,9 @@ const pagePort = await listen(http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   if (u.pathname === '/pic.png') { res.writeHead(200, { 'content-type': 'image/png' }); return res.end(PIC); }
   const q = u.searchParams;
-  const html = q.get('lang') ? page.replace('data-repo=', `data-lang="${q.get('lang')}" data-repo=`) : page;
+  let html = q.get('lang') ? page.replace('data-repo=', `data-lang="${q.get('lang')}" data-repo=`) : page;
+  // ?storage=all: every localStorage key except the ones in data-storage-skip.
+  if (q.get('storage') === 'all') html = html.replace('data-storage="theme"', 'data-storage="*" data-storage-skip="room-code"');
   res.writeHead(200, { 'content-type': 'text/html' });
   res.end(html);
 }));
