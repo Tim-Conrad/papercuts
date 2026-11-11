@@ -32,13 +32,17 @@
       saved: 'Saved in this browser. It goes out later.', savedLogin: 'Saved in this browser. Log in again, then it goes out.',
       notSent: 'Not sent: ', hint: 'Tap or click the part you mean', waiting: (n) => ` · ${n} waiting`,
       login: 'Log in again at your login page, then the report goes out.', downloaded: 'Saved as a file. Run `papercuts import <file>` later.',
-      kinds: { bug: 'bug', ux: 'ux', copy: 'copy', idea: 'idea', other: 'other' },
+      kinds: { bug: 'Bug', ux: 'Hard to use', copy: 'Wording', idea: 'Idea', other: 'Other', tool: 'Tool', rule: 'Rule', path: 'Path' },
       markPic: 'Mark picture', markScreen: 'Mark screen', mic: 'Speak', micStop: 'Stop', pen: 'Pen', pin: 'Pin',
       undo: 'Undo', clear: 'Clear', cancel: 'Cancel', done: 'Done', pinText: 'What is at this pin?', removePic: 'Remove picture',
       cannotMark: 'This picture cannot be marked (it comes from another site).', noScreen: 'No screen picture: ',
       list: (n) => `${n} open`, back: 'New papercut', pickedSub: 'Picked element', pins: (n) => `${n} ${n === 1 ? 'pin' : 'pins'}`, picture: 'Marked picture', cancelPick: 'Cancel', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`, empty: 'No open papercuts.', age: (d) => (d < 1 ? 'today' : `${d} d ago`),
       fixed: 'Fixed', required: 'required', fieldRequired: (l) => `Fill in “${l}”, it is required.`, speak: 'Tap to speak', listening: 'Listening… tap to stop', typeInstead: 'or type below',
+      another: 'Report another', thanks: 'Thank you. Sent as ', twoFingers: 'Hold two fingers', copyLink: 'Copy link', copied: 'Link copied',
+      loginFirst: 'Log in to report. Open the login page, then come back: ', loginLink: 'log in',
+      micBlocked: 'Microphone blocked. Allow it in the browser settings, or type instead.', noSpeech: 'I heard nothing. Tap and speak again, or type instead.',
+      micNetwork: 'Speech input needs a network connection. Type instead.', micFailed: 'Speech input failed. Type instead.', pinLabel: (n) => `Pin ${n}: what is here?`,
     },
     de: {
       tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer', child: 'Kleiner',
@@ -47,13 +51,17 @@
       saved: 'Im Browser gespeichert. Geht später raus.', savedLogin: 'Im Browser gespeichert. Melde dich neu an, dann geht es raus.',
       notSent: 'Nicht gesendet: ', hint: 'Tippe oder klicke auf die Stelle', waiting: (n) => ` · ${n} warten`,
       login: 'Melde dich auf der Login-Seite neu an, dann geht der Bericht raus.', downloaded: 'Als Datei gespeichert. Später `papercuts import <datei>` ausführen.',
-      kinds: { bug: 'Fehler', ux: 'Bedienung', copy: 'Text', idea: 'Idee', other: 'Sonst' },
+      kinds: { bug: 'Fehler', ux: 'Schwer zu bedienen', copy: 'Text', idea: 'Idee', other: 'Sonst', tool: 'Werkzeug', rule: 'Regel', path: 'Pfad' },
       markPic: 'Bild markieren', markScreen: 'Bildschirm markieren', mic: 'Sprechen', micStop: 'Stopp', pen: 'Stift', pin: 'Nummer',
       undo: 'Zurück', clear: 'Leeren', cancel: 'Abbrechen', done: 'Fertig', pinText: 'Was ist an dieser Nummer?', removePic: 'Bild entfernen',
       cannotMark: 'Dieses Bild lässt sich nicht markieren (es kommt von einer anderen Seite).', noScreen: 'Kein Bildschirmfoto: ',
       list: (n) => `${n} offen`, back: 'Neuer Papercut', pickedSub: 'Gewähltes Element', pins: (n) => `${n} ${n === 1 ? 'Nummer' : 'Nummern'}`, picture: 'Markiertes Bild', cancelPick: 'Abbrechen', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'Antwort' : 'Antworten'}`, empty: 'Keine offenen Papercuts.', age: (d) => (d < 1 ? 'heute' : `vor ${d} T.`),
       fixed: 'Behoben', required: 'Pflicht', fieldRequired: (l) => `Fülle „${l}“ aus, das ist Pflicht.`, speak: 'Tippen und sprechen', listening: 'Ich höre zu… tippen zum Beenden', typeInstead: 'oder unten tippen',
+      another: 'Noch einen melden', thanks: 'Danke. Gesendet als ', twoFingers: 'Mit zwei Fingern halten', copyLink: 'Link kopieren', copied: 'Link kopiert',
+      loginFirst: 'Zum Melden anmelden. Öffne die Login-Seite und komm zurück: ', loginLink: 'anmelden',
+      micBlocked: 'Mikrofon blockiert. Erlaube es in den Browser-Einstellungen oder tippe.', noSpeech: 'Ich habe nichts gehört. Tippe und sprich noch einmal oder tippe.',
+      micNetwork: 'Spracheingabe braucht Netz. Tippe stattdessen.', micFailed: 'Spracheingabe ging nicht. Tippe stattdessen.', pinLabel: (n) => `Nummer ${n}: Was ist hier?`,
     },
   };
   let t = T.en;
@@ -305,18 +313,31 @@
 
   async function status() {
     let reachable = false;
+    let login = false;
+    let reason = '';
     try {
       const res = await fetch(`${relay}/status`, { credentials: 'include', redirect: 'manual' });
+      login = res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400);
       reachable = res.ok && (await res.json()).ok === true;
-    } catch (_) { reachable = false; }
-    return { reachable, queued: (await queued()).length };
+      if (!reachable && !login) reason = `HTTP ${res.status}`;
+    } catch (e) {
+      reason = (e && e.message) || 'no answer';
+      // A login proxy answers with a redirect without CORS headers, so the readable request fails like a dead relay.
+      // An opaque request tells them apart: it fails only when nothing answers.
+      try {
+        await fetch(`${relay}/status`, { mode: 'no-cors', credentials: 'include' });
+        login = true;
+        console.warn(`papercuts: relay ${relay} answers, but the page cannot read it: the login of the relay ended, or this origin is not in PAPERCUTS_ORIGINS`);
+      } catch (_) { /* nothing answers */ }
+    }
+    return { reachable, login, reason, queued: (await queued()).length };
   }
 
   // ---- UI ----
   // Design tokens: one accent (data-accent), neutral surfaces, light and dark. Shadow DOM keeps the page CSS out.
   const CSS_TEXT = `
     :host { all: initial;
-      --pc-accent: #e5484d; --pc-on-accent: #fff;
+      --pc-accent: #d13438; --pc-on-accent: #fff;
       --pc-bg: #ffffff; --pc-surface: #f4f4f5; --pc-hover: #ececef; --pc-line: rgba(24,24,27,.11);
       --pc-ink: #18181b; --pc-muted: #6b6b75; --pc-ok: #15803d; --pc-warn: #b45309; --pc-err: #dc2626;
       --pc-shadow: 0 24px 60px -16px rgba(9,9,11,.32), 0 6px 16px -6px rgba(9,9,11,.14);
@@ -516,8 +537,30 @@
     .sheet canvas { display: block; max-width: 100%; border-radius: 12px; box-shadow: 0 30px 80px -20px rgba(0,0,0,.7); touch-action: none; cursor: crosshair; background: #fff; }
     .pins { width: min(560px, 100%); display: grid; gap: 8px; }
     .pins label { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 12px; background: var(--pc-bg); }
-    .pins .num { width: 24px; height: 24px; border-radius: 999px; background: #e5484d; color: #fff; font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+    .pins .num { width: 24px; height: 24px; border-radius: 999px; background: #d13438; color: #fff; font-weight: 700; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
     .pins input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 14px; padding: 6px 4px; }
+
+    /* success, shortcuts */
+    .doneactions { display: flex; gap: 8px; }
+    .doneactions button { flex: 1; height: 44px; border-radius: 12px; font-weight: 650; }
+    .doneactions .another { background: var(--pc-ink); color: var(--pc-bg); }
+    .doneactions .another * { color: var(--pc-bg); }
+    .doneactions .shut { border: 1px solid var(--pc-line); }
+    .shortcuts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--pc-muted); }
+    .shortcuts .kbd { padding: 3px 6px; }
+    .shortcuts button { font-size: 12px; color: var(--pc-muted); text-decoration: underline; text-underline-offset: 2px; }
+    .shortcuts button:hover { color: var(--pc-ink); }
+    .body.voice > .speakwrap { order: -4; } .body.voice > .presets { order: -3; } .body.voice > .field { order: -2; } .body.voice > .kinds { order: -1; }
+
+    /* fingers need room: 44 px targets on touch screens */
+    @media (pointer: coarse) {
+      .kinds button, .presets button, .fields .options button, .pill, .where .pill { min-height: 44px; }
+      .mini, .iconbtn { width: 44px; height: 44px; }
+      .tool { height: 44px; }
+      button.send { height: 48px; }
+      .tab { padding-left: 10px; padding-right: 10px; }
+      .shortcuts button { min-height: 32px; }
+    }
 
     @keyframes pc-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
     @keyframes pc-up { from { transform: translateY(100%); } to { transform: none; } }
@@ -549,6 +592,7 @@
     clock: [['circle', { cx: 12, cy: 12, r: 9 }], ['path', { d: 'M12 7v5l3 2' }]],
     place: [['path', { d: 'M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11Z' }], ['circle', { cx: 12, cy: 10, r: 2.5 }]],
     frame: [['path', { d: 'M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3' }]],
+    reset: [['path', { d: 'M3 12a9 9 0 1 0 3-6.7L3 8' }], ['path', { d: 'M3 3v5h5' }]],
     download: [['path', { d: 'M12 3v12M7 10l5 5 5-5M5 21h14' }]],
   };
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -675,12 +719,17 @@
     function open() {
       if (isHidden()) return;
       rehome();
+      if (doneState) showForm();
       els.panel.hidden = false;
       els.scrim.hidden = false;
       els.tab.classList.add('away');
+      els.tab.inert = true;
+      els.tab.setAttribute('aria-expanded', 'true');
       setTarget(picked, true);
-      // On a phone the keyboard would cover half the sheet before the user decides anything.
-      if (!els.form.hidden && !matchMedia('(pointer: coarse)').matches) els.text.focus({ preventScroll: true });
+      // On a phone the keyboard would cover half the sheet before the user decides anything, so focus the heading.
+      if (els.form.hidden) return;
+      if (matchMedia('(pointer: coarse)').matches) els.heading.focus({ preventScroll: true });
+      else els.text.focus({ preventScroll: true });
     }
     function close() {
       stopPicking();
@@ -689,6 +738,9 @@
       els.scrim.hidden = true;
       els.box.hidden = true;
       els.tab.classList.remove('away');
+      els.tab.inert = false;
+      els.tab.setAttribute('aria-expanded', 'false');
+      clearTimeout(autoClose);
       if (hadFocus) els.tab.focus({ preventScroll: true });
     }
     const toggle = () => (els.panel.hidden ? open() : close());
@@ -701,7 +753,7 @@
     function redraw() {
       const { ctx, canvas } = sheet;
       ctx.drawImage(sheet.img, 0, 0, canvas.width, canvas.height);
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#e5484d'; ctx.lineWidth = lineWidth();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#d13438'; ctx.lineWidth = lineWidth();
       let nr = 0;
       for (const m of sheet.marks) {
         if (m.type === 'pen') {
@@ -711,7 +763,7 @@
         } else {
           nr++;
           const r = lineWidth() * 3;
-          ctx.fillStyle = '#e5484d'; ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#d13438'; ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.fill();
           ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(r * 1.2)}px system-ui, sans-serif`;
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(nr), m.x, m.y);
         }
@@ -719,7 +771,7 @@
     }
     function renderPins() {
       els.pins.replaceChildren(...sheet.marks.filter((m) => m.type === 'pin').map((m, i) => {
-        const input = h('input', { type: 'text', maxlength: '120', placeholder: t.pinText, 'aria-label': `${i + 1}` });
+        const input = h('input', { type: 'text', maxlength: '120', placeholder: t.pinText, 'aria-label': t.pinLabel(i + 1) });
         input.value = m.text;
         input.addEventListener('input', () => { m.text = input.value; });
         return h('label', {}, h('span', { class: 'num' }, String(i + 1)), input);
@@ -847,10 +899,12 @@
       if (listening) { listening.stop(); return; }
       const rec = new Speech();
       // data-speech-lang, else the language of the page, for example "de-DE".
-      rec.lang = cfg.speechLang || document.documentElement.lang || 'en-US';
+      rec.lang = cfg.speechLang || cfg.lang || (repoCfg && repoCfg.lang) || document.documentElement.lang || 'en-US';
       rec.interimResults = true;
       const base = els.text.value.trim();
-      rec.continuous = true;
+      // On a phone, speech stops by itself after a pause: open, speak, send is three taps.
+      // It also avoids repeated final words of continuous mode in Android Chrome.
+      rec.continuous = !matchMedia('(pointer: coarse)').matches;
       // Words show live while the person speaks. The final words replace the live ones.
       let done = '';
       rec.onresult = (e) => {
@@ -868,7 +922,8 @@
         els.mic.setAttribute('aria-pressed', 'false'); els.mic.setAttribute('aria-label', t.mic); els.mic.title = t.mic;
         els.speak.setAttribute('aria-pressed', 'false'); els.speakLabel.textContent = t.speak;
       };
-      rec.onerror = (e) => setStatus('warn', `${t.mic}: ${e.error}`);
+      const MIC_ERRORS = { 'not-allowed': t.micBlocked, 'service-not-allowed': t.micBlocked, 'no-speech': t.noSpeech, network: t.micNetwork, 'audio-capture': t.micBlocked };
+      rec.onerror = (e) => { if (e.error !== 'aborted') setStatus('warn', MIC_ERRORS[e.error] || t.micFailed); };
       listening = rec;
       els.mic.setAttribute('aria-pressed', 'true');
       els.mic.setAttribute('aria-label', t.micStop);
@@ -944,10 +999,14 @@
     }
 
     // ---- form helpers ----
-    let kind = kindsList()[0];
+    // No kind is chosen at first: a report without a choice is filed as "other", not as a wrong "bug".
+    let kind = null;
     function setKind(k) {
       kind = k;
-      for (const b of els.kinds.children) b.setAttribute('aria-checked', String(b.dataset.kind === k));
+      [...els.kinds.children].forEach((b, i) => {
+        b.setAttribute('aria-checked', String(b.dataset.kind === k));
+        b.tabIndex = (k ? b.dataset.kind === k : i === 0) ? 0 : -1;
+      });
     }
     function textChanged() {
       const n = els.text.value.length;
@@ -961,6 +1020,26 @@
     function setStatus(kindOf, ...content) {
       els.status.className = `status ${kindOf || ''}`;
       els.status.replaceChildren(...(content.length ? [icon(STATUS_ICON[kindOf] || 'alert'), h('div', {}, ...content)] : []));
+    }
+
+    // After a send: a thank-you with "Report another" and "Close", no second send by accident.
+    let doneState = false;
+    let autoClose = null;
+    function showDone() {
+      doneState = true;
+      els.form.hidden = true;
+      els.sendrow.hidden = true;
+      els.doneRow.hidden = false;
+      els.another.focus({ preventScroll: true });
+      if (matchMedia('(pointer: coarse)').matches) autoClose = setTimeout(close, 2500);
+    }
+    function showForm() {
+      doneState = false;
+      clearTimeout(autoClose);
+      els.form.hidden = false;
+      els.sendrow.hidden = false;
+      els.doneRow.hidden = true;
+      setStatus();
     }
 
     const clearForm = () => { els.text.value = ''; textChanged(); forgetMark(); for (const f of Object.values(fieldEls)) f.clear(); };
@@ -979,7 +1058,7 @@
           return;
         }
       }
-      const input = { kind, text, from: 'human', ...(mark || {}), ...(Object.keys(fields).length ? { fields } : {}) };
+      const input = { kind: kind || 'other', text, from: 'human', ...(mark || {}), ...(Object.keys(fields).length ? { fields } : {}) };
       if (DOWNLOAD) {
         downloadReport(input, picked);
         clearForm();
@@ -993,8 +1072,9 @@
       els.send.disabled = false;
       els.send.classList.remove('busy');
       if (r.ok) {
-        setStatus('ok', t.sent, h('a', { href: r.url, target: '_blank', rel: 'noopener' }, `#${r.issue}`));
+        setStatus('ok', t.thanks, h('a', { href: r.url, target: '_blank', rel: 'noopener' }, `#${r.issue}`));
         clearForm();
+        showDone();
       } else if (r.queued) {
         setStatus('warn', /log in/.test(r.error) ? t.savedLogin : t.saved);
       } else {
@@ -1049,7 +1129,7 @@
 
     els.count = h('span', { class: 'bubble count' });
     els.replies = h('span', { class: 'bubble replies' });
-    els.tab = h('button', { class: 'tab', type: 'button', title: t.tabTitle, 'aria-label': t.tabTitle, 'aria-haspopup': 'dialog' },
+    els.tab = h('button', { class: 'tab', type: 'button', title: t.tabTitle, 'aria-label': t.tabTitle, 'aria-haspopup': 'dialog', 'aria-expanded': 'false' },
       icon('logo'), h('span', { class: 'label' }, t.tab), els.count, els.replies);
     makeDraggable(els.tab);
 
@@ -1058,14 +1138,14 @@
     els.target = h('div', { class: 'target' }, els.targetName, els.targetSub);
     els.parent = iconBtn('parent mini', 'up', t.parent, () => { if (picked && picked.parentElement) { chain.push(picked); setTarget(picked.parentElement, true); } });
     els.child = iconBtn('child mini', 'down', t.child, () => { if (chain.length) setTarget(chain.pop(), true); }, { disabled: '' });
-    els.whole = iconBtn('whole mini', 'x', t.whole, () => setTarget(null));
+    els.whole = iconBtn('whole mini', 'reset', t.whole, () => setTarget(null));
     els.pick = h('button', { type: 'button', class: 'pick pill', onclick: startPicking }, icon('pick'), t.pick);
 
     els.kinds = h('div', { class: 'kinds', role: 'radiogroup', 'aria-label': t.kind },
       ...kindsList().map((k) => h('button', { type: 'button', role: 'radio', 'data-kind': k, 'aria-checked': 'false', onclick: () => setKind(k) }, t.kinds[k] || k)));
     els.kinds.addEventListener('keydown', (e) => {
       const KS = kindsList();
-      const i = KS.indexOf(kind);
+      const i = kind ? KS.indexOf(kind) : -1;
       const next = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
       if (!next) return;
       e.preventDefault();
@@ -1139,7 +1219,7 @@
     els.listBtn = h('button', { type: 'button', class: 'list pill', hidden: '', onclick: () => showList(els.listView.hidden) }, icon('list'), els.listLabel, els.listDot);
     els.items = h('ul', { class: 'items' });
     els.listView = h('div', { hidden: '' }, els.items);
-    els.form = h('div', { class: 'body' },
+    els.form = h('div', { class: 'body form-area' },
       h('div', { class: 'where' }, icon('frame'), els.target, els.parent, els.child, els.whole, els.pick),
       els.kinds,
       els.speakWrap,
@@ -1150,21 +1230,48 @@
       els.previewRow);
     if (VOICE_FIRST) els.form.classList.add('voice');
     els.listView.className = 'body';
-    els.foot = h('div', { class: 'foot' }, els.status,
-      h('div', { class: 'sendrow' }, els.send, ...(DOWNLOAD ? [] : [h('span', { class: 'kbd', 'aria-hidden': 'true' }, mac ? '⌘ ↵' : 'Ctrl ↵')])));
-    els.panel = h('div', { class: 'panel', hidden: '', role: 'dialog', 'aria-label': t.title },
+    els.sendrow = h('div', { class: 'sendrow' }, els.send, ...(DOWNLOAD ? [] : [h('span', { class: 'kbd', 'aria-hidden': 'true' }, mac ? '⌘ ↵' : 'Ctrl ↵')]));
+    els.another = h('button', { type: 'button', class: 'another', onclick: () => { showForm(); if (!matchMedia('(pointer: coarse)').matches) els.text.focus(); } }, t.another);
+    els.doneRow = h('div', { class: 'doneactions', hidden: '' }, els.another, h('button', { type: 'button', class: 'shut', onclick: () => close() }, t.close));
+    els.copyLink = h('button', { type: 'button', class: 'copylink', onclick: async () => {
+      const link = `${location.href.split('#')[0]}#papercut`;
+      try { await navigator.clipboard.writeText(link); els.copyLink.textContent = t.copied; } catch (_) { prompt(t.copyLink, link); }
+      setTimeout(() => { els.copyLink.textContent = t.copyLink; }, 2000);
+    } }, t.copyLink);
+    els.shortcutKeys = h('span', { class: 'kbd' });
+    els.shortcuts = h('div', { class: 'shortcuts' }, els.shortcutKeys,
+      ...(matchMedia('(pointer: coarse)').matches && cfg.gesture !== 'off' ? [h('span', {}, t.twoFingers)] : []), els.copyLink);
+    els.foot = h('div', { class: 'foot' }, els.status, els.sendrow, els.doneRow, ...(DOWNLOAD ? [] : [els.shortcuts]));
+    els.panel = h('div', { class: 'panel', hidden: '', role: 'dialog', 'aria-modal': 'true', 'aria-label': t.title },
       h('div', { class: 'grab', 'aria-hidden': 'true' }),
-      h('div', { class: 'head' }, h('h2', {}, icon('logo'), t.title), els.listBtn, iconBtn('close iconbtn', 'x', t.close, () => close())),
+      h('div', { class: 'head' }, (els.heading = h('h2', { tabindex: '-1' }, icon('logo'), t.title)), els.listBtn, iconBtn('close iconbtn', 'x', t.close, () => close())),
       els.form, els.listView, els.foot);
     // Esc closes the panel. Inside a modal dialog it must not close the dialog too.
-    els.panel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
+    // Keep Tab inside the open panel.
+    els.panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const all = [...els.panel.querySelectorAll('button, textarea, input, a[href], [tabindex]')]
+        .filter((x) => !x.disabled && x.tabIndex >= 0 && x.getClientRects().length);
+      if (!all.length) return;
+      const now = host.shadowRoot.activeElement;
+      const i = all.indexOf(now);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); all[all.length - 1].focus(); }
+      else if (!e.shiftKey && (i === -1 || i === all.length - 1)) { e.preventDefault(); all[0].focus(); }
+    });
+    // Esc closes the sheet, the picking or the panel, from anywhere on the page. In a modal dialog of the page,
+    // the capture phase and preventDefault keep the dialog open.
+    addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || picking) return;
+      if (!els.sheet.hidden) { e.preventDefault(); e.stopPropagation(); closeSheet(); return; }
+      if (!els.panel.hidden) { e.preventDefault(); e.stopPropagation(); close(); }
+    }, true);
     els.scrim = h('div', { class: 'scrim', hidden: '', onclick: () => close() });
     els.boxLabel = h('span', { class: 'boxlabel' });
     els.box = h('div', { class: 'box', hidden: '' }, els.boxLabel);
     els.hint = h('div', { class: 'hint', hidden: '', role: 'status' }, h('span', {}, t.hint),
       h('button', { type: 'button', class: 'cancel-pick', onclick: () => { stopPicking(); setTarget(picked, true); } }, t.cancelPick));
     shadow.append(els.box, els.hint, els.tab, els.scrim, els.panel, els.sheet);
-    setKind(kindsList()[0]);
+    setKind(null);
     document.documentElement.append(host);
     setTarget(null);
     els.box.hidden = true;
@@ -1182,7 +1289,13 @@
         toggle();
       }, true);
       const label = combo.split(/[+\s]+/).filter(Boolean).map((x) => (x.length === 1 ? x.toUpperCase() : x[0].toUpperCase() + x.slice(1))).join('+');
-      els.tab.title = `${t.tabTitle.replace(/ \(.*\)$/, '')} (${label})`;
+      const plain = t.tabTitle.replace(/ \(.*\)$/, '');
+      els.tab.title = `${plain} (${label})`;
+      els.tab.setAttribute('aria-label', `${plain} (${label})`);
+      els.tab.setAttribute('aria-keyshortcuts', label);
+      els.shortcutKeys.textContent = label;
+    } else {
+      els.shortcutKeys.hidden = true;
     }
     // A long press with two fingers opens the panel on a touch screen. data-gesture="off" turns it off.
     if (cfg.gesture !== 'off') {
@@ -1246,7 +1359,10 @@
         els.count.textContent = n ? String(n) : '';
         els.count.title = n ? t.waiting(n).replace(/^ · /, '') : '';
       },
-      notice(text) { setStatus('warn', text); },
+      notice(text, href, label) {
+        if (href) setStatus('warn', text, h('a', { href, target: '_blank', rel: 'noopener' }, label || href));
+        else setStatus('warn', text);
+      },
       reload: () => loadList(),
     };
   }
@@ -1277,7 +1393,17 @@
     t = strings();
     if (DOWNLOAD) { ui = createUi(); return; }
     const s = await status();
-    if (!s.reachable) return;
+    if (s.login) {
+      // The login of the relay ended. Show the tab, explain, and keep reports in the queue until the login is back.
+      ui = createUi();
+      ui.notice(t.loginFirst, `${relay}/status`, t.loginLink);
+      ui.badge();
+      return;
+    }
+    if (!s.reachable) {
+      console.warn(`papercuts: relay ${relay} not reachable (${s.reason}), widget hidden`);
+      return;
+    }
     repoCfg = await loadRepoConfig();
     t = strings();
     ui = createUi();

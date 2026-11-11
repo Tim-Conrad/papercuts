@@ -21,6 +21,14 @@ const front = http.createServer((req, res) => {
     res.writeHead(403, { 'content-type': 'application/json', 'access-control-allow-origin': req.headers.origin || '*', 'access-control-allow-credentials': 'true' });
     return res.end(JSON.stringify({ ok: false, error: 'origin not allowed' }));
   }
+  // loggedout: the login proxy redirects every route but the script, as Authelia does after the session ends.
+  // nostatus: the script loads, but the relay gives no answer to anything else.
+  if (mode === 'nostatus' && !req.url.startsWith('/papercuts.js')) return req.socket.destroy();
+  if (mode === 'loggedout' && !req.url.startsWith('/papercuts.js')) {
+    if (req.url.startsWith('/login')) { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<h1>Login</h1>'); }
+    res.writeHead(302, { location: '/login' });
+    return res.end();
+  }
   if (mode === 'redirect' && req.url.startsWith('/report')) {
     res.writeHead(302, { location: 'https://auth.example/login' });
     return res.end();
