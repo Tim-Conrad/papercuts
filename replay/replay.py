@@ -29,8 +29,21 @@ with sync_playwright() as p:
         except Exception as e:
             print(f"replay: step {step['click']} failed: {e}", file=sys.stderr)
     page.evaluate("([x, y]) => window.scrollTo(x, y)", [data.get("scrollX") or 0, data.get("scrollY") or 0])
-    if data.get("selector"):
-        page.evaluate("""s => { const e = document.querySelector(s); if (e) { e.style.outline = '3px solid red'; e.style.outlineOffset = '2px'; } }""", data["selector"])
+    marks = data.get("marks") or ([{"selector": data["selector"]}] if data.get("selector") else [])
+    # Each mark gets a red frame and its number, as the reporter saw it.
+    page.evaluate("""marks => marks.forEach((m, i) => {
+      let r;
+      if (m.selector) { const e = document.querySelector(m.selector); if (!e) return; const b = e.getBoundingClientRect(); r = { x: b.x + scrollX, y: b.y + scrollY, w: b.width, h: b.height }; }
+      else r = { x: m.box.x, y: m.box.y, w: m.box.w, h: m.box.h };
+      const f = document.createElement('div');
+      Object.assign(f.style, { position: 'absolute', left: (r.x - 3) + 'px', top: (r.y - 3) + 'px', width: (r.w + 6) + 'px', height: (r.h + 6) + 'px',
+        border: '3px solid #d13438', borderRadius: '6px', zIndex: 2147483647, pointerEvents: 'none' });
+      const n = document.createElement('div');
+      n.textContent = String(i + 1);
+      Object.assign(n.style, { position: 'absolute', left: '-12px', top: '-12px', width: '22px', height: '22px', borderRadius: '11px', background: '#d13438',
+        color: '#fff', font: 'bold 12px system-ui', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+      f.append(n); document.body.append(f);
+    })""", marks)
     # The picture shows the page, not the papercuts tab.
     page.add_style_tag(content="papercuts-widget { display: none !important; }")
     page.wait_for_timeout(300)

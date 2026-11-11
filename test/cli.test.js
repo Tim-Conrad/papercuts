@@ -441,3 +441,10 @@ test('init detects nginx, vite and a plain page', async () => {
     assert.match(out, new RegExp(`^stack: ${stack}$`, 'm'));
   }
 });
+
+test('replay prints the marks', async () => {
+  const place = { url: 'https://shop.lab.t7d.dev/', hash: '', marks: [{ selector: '#buy' }, { box: { x: 1, y: 2, w: 3, h: 4 } }] };
+  const n = issueWith(`x\n\n<!-- papercut-place: ${encodeURIComponent(JSON.stringify(place))} -->\n`);
+  const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n));
+  assert.match(r.out, /marks: 1 #buy, 2 box 3x4 at 1,2/);
+});

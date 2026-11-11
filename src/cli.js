@@ -503,7 +503,7 @@ export async function run(argv, ctx = {}) {
         url = flags.base.replace(/\/$/, '') + u.pathname + u.search + u.hash;
       }
       const data = { url, viewport: place.viewport || { width: 1280, height: 800 }, scrollX: place.scrollX, scrollY: place.scrollY,
-        selector: place.selector || '', storage: place.storage || {}, steps: place.steps || [], out: flags.out || join(cwd, `papercut-${n}.replay.png`) };
+        selector: place.selector || '', storage: place.storage || {}, steps: place.steps || [], marks: place.marks || [], out: flags.out || join(cwd, `papercut-${n}.replay.png`) };
       if (await hasUv(env)) {
         const png = await runReplay(data, env);
         print({ replay: tilde(png, env) });
@@ -512,7 +512,8 @@ export async function run(argv, ctx = {}) {
       print({
         replay: { url, viewport: `${data.viewport.width}x${data.viewport.height}`, scroll: `${data.scrollX},${data.scrollY}`,
           selector: data.selector || 'none', storage: Object.keys(data.storage).join(',') || 'none',
-          steps: data.steps.map((x) => `click ${x.click}`).join(', ') || 'none' },
+          steps: data.steps.map((x) => `click ${x.click}`).join(', ') || 'none',
+          marks: data.marks.map((m, i) => (m.selector ? `${i + 1} ${m.selector}` : `${i + 1} box ${m.box.w}x${m.box.h} at ${m.box.x},${m.box.y}`)).join(', ') || 'none' },
         help: ['Install uv for a replay picture (https://docs.astral.sh/uv/)', 'Or open the url in your browser with this viewport, set the storage keys, run the steps, scroll, and look at the selector'],
       });
       return 0;
