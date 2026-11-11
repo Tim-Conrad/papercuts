@@ -6,7 +6,9 @@ export const KINDS = ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'idea', 'othe
 export const WIDGET_KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
 export const SOURCES = ['human', 'agent'];
 
-export const LIMITS = { text: 300, where: 120, field: 500, errors: 20, body: 60000, title: 70 };
+export const LIMITS = { text: 300, where: 120, field: 500, errors: 20, body: 60000, title: 70, shot: 8 * 1024 * 1024, pins: 20, pin: 120 };
+const PNG_MAGIC = Buffer.from('89504e470d0a1a0a', 'hex');
+const PNG_PREFIX = 'data:image/png;base64,';
 
 // Ported from pen-and-paper papercut.py (GEHEIM). sk- only at the start of a word:
 // disk-usage-report.md and task-list-view are no keys.
@@ -74,7 +76,20 @@ export function normalizeReport(input, from) {
     raw.errors = [`(${raw.errors.length - LIMITS.errors} more)`, ...raw.errors.slice(-LIMITS.errors)];
   }
   const context = cleanContext(raw);
-  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context } };
+  let shot;
+  if (src.shot != null) {
+    const bad = fail('shot is not a PNG of at most 8 MB', 'send the picture as data:image/png;base64,..., or leave it out');
+    if (typeof src.shot !== 'string' || !src.shot.startsWith(PNG_PREFIX)) return bad;
+    const b64 = src.shot.slice(PNG_PREFIX.length);
+    if (b64.length > Math.ceil(LIMITS.shot / 3) * 4 + 4) return bad;
+    shot = Buffer.from(b64, 'base64');
+    if (shot.length > LIMITS.shot || !shot.subarray(0, 8).equals(PNG_MAGIC)) return bad;
+  }
+  const pins = (Array.isArray(src.pins) ? src.pins : []).slice(0, LIMITS.pins).map((p, i) => ({
+    nr: Number.isInteger(p?.nr) ? p.nr : i + 1,
+    text: shorten(clean(String(p?.text ?? '').replace(/\s+/g, ' ').trim()), LIMITS.pin),
+  }));
+  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context, shot, pins } };
 }
 
 export function fingerprint(report) {
@@ -112,15 +127,20 @@ function yamlLines(obj, indent = '') {
   return lines;
 }
 
-export function buildIssue(report, target) {
+export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
   const title = `papercut: ${report.text.slice(0, LIMITS.title)}`;
+  const extra = [];
+  if (shotUrl) extra.push(`![papercut](${shotUrl})`);
+  else if (shotNote) extra.push(`_${shotNote}_`);
+  if (report.pins?.length) extra.push(report.pins.map((p) => `${p.nr}. ${p.text || '(no text)'}`).join('\n'));
+  const lead = [report.text, ...extra].join('\n\n');
   const head = { kind: report.kind, from: report.from, where: report.where, repo: report.repo };
   let meta = yamlLines({ ...head, context: report.context }).join('\n');
   const markers = [`<!-- papercut-id: ${report.id} -->`];
   if (report.from === 'agent') markers.push(`<!-- papercut-fp: ${fingerprint(report)} -->`);
-  const room = LIMITS.body - report.text.length - markers.join('\n').length - 40;
+  const room = LIMITS.body - lead.length - markers.join('\n').length - 40;
   meta = shorten(meta, room);
-  const body = `${report.text}\n\n\`\`\`yaml\n${meta}\n\`\`\`\n\n${markers.join('\n')}\n`;
+  const body = `${lead}\n\n\`\`\`yaml\n${meta}\n\`\`\`\n\n${markers.join('\n')}\n`;
   return { title, body, labels: labelsFor(report, target) };
 }
 

@@ -53,5 +53,7 @@ export function loadConfig(env = process.env, file = {}) {
     target,
     credential: tokenFile ? { source: 'file', path: tokenFile } : { source: 'gh' },
     port: Number(env.PORT || 8000),
+    shotsDir: env.PAPERCUTS_SHOTS_DIR || file.shotsDir || 'shots',
+    publicUrl: env.PAPERCUTS_PUBLIC_URL || file.publicUrl || '',
   };
 }

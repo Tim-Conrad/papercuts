@@ -128,3 +128,38 @@ test('idea is a kind, also in the widget', () => {
   assert.equal(normalizeReport({ kind: 'idea', text: 'x', repo: 'a/b' }, 'human').ok, true);
   assert.ok(WIDGET_KINDS.includes('idea'));
 });
+
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+const dataUrl = (b) => 'data:image/png;base64,' + b.toString('base64');
+
+test('shot: a PNG data URL becomes a Buffer', () => {
+  const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', shot: dataUrl(PNG) }, 'human');
+  assert.equal(r.ok, true);
+  assert.ok(Buffer.isBuffer(r.report.shot));
+  assert.equal(r.report.shot.length, PNG.length);
+});
+
+test('shot: JPEG, wrong magic and too large fail', () => {
+  for (const shot of ['data:image/jpeg;base64,' + PNG.toString('base64'), dataUrl(Buffer.from('nope')), dataUrl(Buffer.concat([PNG, Buffer.alloc(8 * 1024 * 1024)]))]) {
+    const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', shot }, 'human');
+    assert.equal(r.ok, false);
+    assert.match(r.error, /shot/);
+    assert.ok(r.help);
+  }
+});
+
+test('pins: redacted, cut, at most 20', () => {
+  const pins = Array.from({ length: 25 }, (_, i) => ({ nr: i + 1, text: i === 0 ? 'password=hunter2' : 'x'.repeat(200) }));
+  const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', pins }, 'human');
+  assert.equal(r.ok, true);
+  assert.equal(r.report.pins.length, 20);
+  assert.equal(r.report.pins[0].text, '[redacted]');
+  assert.ok(r.report.pins[1].text.length <= 160);
+});
+
+test('buildIssue shows the picture and the pins', () => {
+  const r = normalizeReport({ kind: 'ux', text: 'Look here', repo: 'a/b', pins: [{ nr: 1, text: 'too small' }, { nr: 2, text: 'wrong color' }] }, 'human').report;
+  const { body } = buildIssue(r, { mode: 'per-project' }, { shotUrl: 'https://github.com/user-attachments/assets/x' });
+  assert.match(body, /^Look here\n\n!\[papercut\]\(https:\/\/github\.com\/user-attachments\/assets\/x\)/);
+  assert.match(body, /\n1\. too small\n2\. wrong color\n/);
+});

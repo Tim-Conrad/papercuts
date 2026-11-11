@@ -8,6 +8,8 @@ import { githubClient } from '../src/github.js';
 import { credentialFrom } from '../src/credential.js';
 import { fileReport } from '../src/file.js';
 import { normalizeReport } from '../src/format.js';
+import { shotStore } from '../src/shots.js';
+import { existsSync } from 'node:fs';
 
 let gh, client;
 const PER = { mode: 'per-project' };
@@ -15,7 +17,7 @@ const rep = (over = {}, from = 'agent') => normalizeReport({ kind: 'tool', text:
 
 beforeEach(async () => {
   gh = await fakeGithub();
-  client = githubClient({ credential: { token: async () => gh.token, describe: () => 'test' }, apiBase: gh.apiBase });
+  client = githubClient({ credential: { token: async () => gh.token, describe: () => 'test' }, apiBase: gh.apiBase, uploadBase: gh.apiBase });
 });
 afterEach(() => gh.close());
 
@@ -121,4 +123,41 @@ test('401 clears the cached token and retries once', async () => {
   const me = await c.user();
   assert.equal(me.login, 'tester');
   assert.equal(calls, 2);
+});
+
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+const withShot = () => normalizeReport({ kind: 'ux', text: 'see picture', repo: 'a/b', shot: 'data:image/png;base64,' + PNG.toString('base64') }, 'human').report;
+
+test('uploads the picture and embeds it', async () => {
+  const r = await fileReport(withShot(), { client, target: PER });
+  assert.equal(r.ok, true);
+  assert.equal(gh.state.uploads.length, 1);
+  assert.equal(gh.state.uploads[0].query.repository_id, '4242');
+  assert.equal(gh.state.uploads[0].type, 'image/png');
+  assert.match(gh.state.issues['a/b'][0].body, /!\[papercut\]\(https:\/\/github\.com\/user-attachments\/assets\/fake-1\)/);
+});
+
+test('upload 404 falls back to the relay link', async () => {
+  gh.state.uploadFail = 404;
+  const dir = mkdtempSync(join(tmpdir(), 'pc-shots-'));
+  const report = withShot();
+  const r = await fileReport(report, { client, target: PER, shots: shotStore(dir), publicUrl: 'https://papercuts.lab.example' });
+  assert.equal(r.ok, true);
+  assert.ok(gh.state.issues['a/b'][0].body.includes(`https://papercuts.lab.example/shots/${report.id}.png`));
+  assert.ok(existsSync(join(dir, `${report.id}.png`)));
+});
+
+test('upload fails and no store: the issue still goes out, with a note', async () => {
+  gh.state.uploadFail = 404;
+  const r = await fileReport(withShot(), { client, target: PER });
+  assert.equal(r.ok, true);
+  assert.match(gh.state.issues['a/b'][0].body, /picture could not be saved/);
+});
+
+test('retry with the same id does not upload twice', async () => {
+  const report = withShot();
+  await fileReport(report, { client, target: PER });
+  await fileReport(report, { client, target: PER });
+  assert.equal(gh.state.uploads.length, 1);
+  assert.equal(gh.state.issues['a/b'].length, 1);
 });
