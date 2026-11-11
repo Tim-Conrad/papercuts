@@ -19,7 +19,7 @@
   // All words of the widget. The JS API answers in English for agents.
   const T = {
     en: {
-      tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Pick', parent: 'Parent',
+      tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Pick', parent: 'Parent', child: 'Smaller',
       whole: 'Whole view', kind: 'Kind', placeholder: 'One sentence: what is wrong?', send: 'Send', download: 'Download report',
       close: 'Close', sending: 'Sending…', sent: 'Sent: ', writeFirst: 'Write one sentence first.',
       saved: 'Saved in this browser. It goes out later.', savedLogin: 'Saved in this browser. Log in again, then it goes out.',
@@ -33,7 +33,7 @@
       replyCount: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`, empty: 'No open papercuts.', age: (d) => (d < 1 ? 'today' : `${d} d ago`),
     },
     de: {
-      tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer',
+      tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer', child: 'Kleiner',
       whole: 'Ganze Ansicht', kind: 'Art', placeholder: 'Ein Satz: Was stimmt nicht?', send: 'Senden', download: 'Als Datei speichern',
       close: 'Schließen', sending: 'Sende…', sent: 'Gesendet: ', writeFirst: 'Schreib zuerst einen Satz.',
       saved: 'Im Browser gespeichert. Geht später raus.', savedLogin: 'Im Browser gespeichert. Melde dich neu an, dann geht es raus.',
@@ -119,9 +119,15 @@
     };
   }
 
+  // data-storage="*" takes every key except those in data-storage-skip (for example a room code).
   function storageSubset() {
-    const keys = (cfg.storage || '').split(',').map((k) => k.trim()).filter(Boolean);
+    let keys = (cfg.storage || '').split(',').map((k) => k.trim()).filter(Boolean);
     if (!keys.length) return undefined;
+    if (keys.length === 1 && keys[0] === '*') {
+      const skip = new Set((cfg.storageSkip || '').split(',').map((k) => k.trim()).filter(Boolean));
+      keys = [];
+      try { for (let i = 0; i < localStorage.length && keys.length < 50; i++) { const k = localStorage.key(i); if (!skip.has(k)) keys.push(k); } } catch (_) { /* storage blocked */ }
+    }
     const out = {};
     for (const k of keys) {
       try { const v = localStorage.getItem(k); if (v !== null) out[k] = v.slice(0, 300); } catch (_) { /* storage blocked */ }
@@ -361,10 +367,14 @@
       els.box.hidden = false;
     }
 
-    function setTarget(el) {
+    // Parent goes one element up, Smaller goes back down the same way.
+    let chain = [];
+    function setTarget(el, keepChain) {
+      if (!keepChain) chain = [];
       picked = el;
       els.target.textContent = el ? cssPath(el) : t.whole;
       els.parent.disabled = !el || !el.parentElement || el.parentElement === document.documentElement;
+      if (els.child) els.child.disabled = !chain.length;
       if (els.markPic) els.markPic.hidden = !pickedImage();
       showBox(el);
     }
@@ -406,7 +416,11 @@
     // A modal <dialog> sits in the top layer and makes the rest of the page inert. Inside it, the widget stays usable.
     function home() {
       const modal = [...document.querySelectorAll('dialog[open]')].filter((d) => { try { return d.matches(':modal'); } catch (_) { return false; } }).pop();
-      return modal || document.documentElement;
+      if (modal) return modal;
+      // In fullscreen the browser shows only one element. A video, canvas or picture cannot hold the widget.
+      const full = document.fullscreenElement;
+      if (full && !/^(video|canvas|img|iframe|svg)$/i.test(full.localName)) return full;
+      return document.documentElement;
     }
     function rehome() {
       const target = home();
@@ -722,7 +736,8 @@
     els.tab = h('button', { class: 'tab', type: 'button', title: t.tabTitle }, t.tab, els.count, els.replies);
     makeDraggable(els.tab);
     els.target = h('div', { class: 'target' });
-    els.parent = h('button', { type: 'button', class: 'parent', onclick: () => picked && setTarget(picked.parentElement) }, t.parent);
+    els.parent = h('button', { type: 'button', class: 'parent', onclick: () => { if (picked && picked.parentElement) { chain.push(picked); setTarget(picked.parentElement, true); } } }, t.parent);
+    els.child = h('button', { type: 'button', class: 'child', disabled: '', onclick: () => { if (chain.length) setTarget(chain.pop(), true); } }, t.child);
     els.kind = h('select', { 'aria-label': t.kind }, ...KINDS.map((k) => h('option', { value: k }, t.kinds[k])));
     els.text = h('textarea', { maxlength: '300', placeholder: t.placeholder, 'aria-label': t.title });
     els.counter = h('div', { class: 'counter' }, '0 / 300');
@@ -755,7 +770,7 @@
       els.target,
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'pick', onclick: startPicking }, t.pick),
-        els.parent,
+        els.parent, els.child,
         h('button', { type: 'button', class: 'whole', onclick: () => setTarget(null) }, t.whole)),
       h('div', { class: 'row' }, els.markPic, els.markScreen),
       els.previewRow,
@@ -774,6 +789,7 @@
     addEventListener('keydown', (e) => {
       if (e.altKey && e.shiftKey && e.code === 'KeyP') { e.preventDefault(); toggle(); }
     });
+    document.addEventListener('fullscreenchange', rehome);
     new MutationObserver(rehome).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
     // The page decides when the widget hides, for example in a print or kids view.
     const applyHidden = () => {

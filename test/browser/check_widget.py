@@ -282,6 +282,42 @@ def list_checks(browser, ctl, page_url, width):
     ctx.close()
 
 
+def parity_checks(browser, ctl, page_url, width):
+    """Features ported from anmerkung: Smaller after Parent, fullscreen, all storage keys."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url + "?storage=all")
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    host.locator("button.pick").click()
+    page.locator("#buy").click()
+    check(f"{width}: Smaller is off before Parent", host.locator("button.child").is_disabled())
+    host.locator("button.parent").click()
+    check(f"{width}: Parent goes up", "card" in host.locator(".target").inner_text())
+    host.locator("button.child").click()
+    check(f"{width}: Smaller goes back down", "buy" in host.locator(".target").inner_text())
+
+    page.evaluate("localStorage.setItem('theme', 'dark'); localStorage.setItem('deck', 'k12'); localStorage.setItem('room-code', 'SECRET-ROOM')")
+    page.evaluate("papercuts.report({kind: 'ux', text: 'storage all ' + innerWidth, from: 'human'})")
+    body = issues(ctl)[-1]["body"]
+    check(f"{width}: storage * sends all keys but the skipped ones", "k12" in body and "dark" in body and "SECRET-ROOM" not in body, body[:400])
+    host.locator("button.close").click()
+
+    page.evaluate("document.getElementById('tall').requestFullscreen()")
+    page.wait_for_function("document.fullscreenElement && document.fullscreenElement.id === 'tall'", timeout=3000)
+    page.wait_for_function(f"{WIDGET}.parentElement?.id === 'tall'", timeout=3000)
+    check(f"{width}: widget moves into the fullscreen element", True)
+    page.evaluate("document.exitFullscreen()")
+    page.wait_for_function(f"{WIDGET}.parentElement === document.documentElement", timeout=3000)
+    check(f"{width}: widget moves back after fullscreen", True)
+    check(f"{width}: no page errors in parity checks", not errors, "; ".join(errors))
+    ctx.close()
+
+
 def main():
     harness = subprocess.Popen(["node", str(ROOT / "test/browser/harness.js")], stdout=subprocess.PIPE, text=True)
     try:
@@ -361,6 +397,7 @@ def main():
                 v2_base_checks(browser, ctl, page_url, width)
                 sheet_checks(browser, ctl, page_url, width)
                 list_checks(browser, ctl, page_url, width)
+                parity_checks(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})
