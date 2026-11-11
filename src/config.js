@@ -47,11 +47,14 @@ export function loadConfig(env = process.env, file = {}) {
     if (!target.centralRepo) throw new Error('central target needs PAPERCUTS_CENTRAL_REPO (owner/name)');
   }
   const tokenFile = env.PAPERCUTS_TOKEN_FILE || file.tokenFile;
+  const source = env.PAPERCUTS_CREDENTIAL || file.credential || (tokenFile ? 'file' : 'gh');
+  if (!['gh', 'file'].includes(source)) throw new Error(`PAPERCUTS_CREDENTIAL must be gh or file, not "${source}"`);
+  if (source === 'file' && !tokenFile) throw new Error('the file credential needs PAPERCUTS_TOKEN_FILE');
   return {
     origins: list(env.PAPERCUTS_ORIGINS || 'https://*.lab.t7d.dev'),
     repos: list(env.PAPERCUTS_REPOS || 'Tim-Conrad/*'),
     target,
-    credential: tokenFile ? { source: 'file', path: tokenFile } : { source: 'gh' },
+    credential: source === 'file' ? { source: 'file', path: tokenFile } : { source: 'gh', ...(env.PAPERCUTS_GH_MOUNT ? { mount: env.PAPERCUTS_GH_MOUNT } : {}) },
     port: Number(env.PORT || 8000),
     shotsDir: env.PAPERCUTS_SHOTS_DIR || file.shotsDir || 'shots',
     publicUrl: env.PAPERCUTS_PUBLIC_URL || file.publicUrl || '',
