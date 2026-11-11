@@ -16,7 +16,9 @@
   const DOWNLOAD = new URLSearchParams(location.search).get('papercuts') === 'download' || cfg.mode === 'download';
   const errors = [];
 
-  // All words of the widget. The JS API answers in English for agents.
+  // All words of the widget, one table per language. The JS API answers in English for agents.
+  // A site adds or changes a language with window.papercutsStrings = { fr: { send: 'Envoyer', ... } }.
+  // A missing word falls back to English.
   const T = {
     en: {
       tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Pick', parent: 'Parent', child: 'Smaller',
@@ -31,6 +33,7 @@
       cannotMark: 'This picture cannot be marked (it comes from another site).', noScreen: 'No screen picture: ',
       list: (n) => `Open papercuts (${n})`, back: 'New papercut', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`, empty: 'No open papercuts.', age: (d) => (d < 1 ? 'today' : `${d} d ago`),
+      fixed: 'Fixed',
     },
     de: {
       tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer', child: 'Kleiner',
@@ -45,9 +48,17 @@
       cannotMark: 'Dieses Bild lässt sich nicht markieren (es kommt von einer anderen Seite).', noScreen: 'Kein Bildschirmfoto: ',
       list: (n) => `Offene Papercuts (${n})`, back: 'Neuer Papercut', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'Antwort' : 'Antworten'}`, empty: 'Keine offenen Papercuts.', age: (d) => (d < 1 ? 'heute' : `vor ${d} T.`),
+      fixed: 'Behoben',
     },
   };
-  const t = T[cfg.lang] || T.en;
+  let t = T.en;
+  function strings() {
+    const lang = cfg.lang || 'en';
+    let own = {};
+    try { own = (window.papercutsStrings && window.papercutsStrings[lang]) || {}; } catch (_) { own = {}; }
+    const kinds = Object.assign({}, T.en.kinds, (T[lang] || {}).kinds, own.kinds);
+    return Object.assign({}, T.en, T[lang] || {}, own, { kinds });
+  }
 
   // A copy of the redaction in src/format.js (test/format.test.js checks that both lists match).
   // The browser redacts before it stores a report, so a queued report holds no secret either.
@@ -136,9 +147,12 @@
   }
 
   function place(el) {
+    let steps;
+    try { steps = typeof window.papercutsReplay === 'function' ? window.papercutsReplay() : undefined; } catch (_) { steps = undefined; }
     return {
       url: location.href, hash: location.hash, scrollX: Math.round(scrollX), scrollY: Math.round(scrollY),
       viewport: { width: innerWidth, height: innerHeight }, selector: el ? cssPath(el) : '', storage: storageSubset(),
+      ...(Array.isArray(steps) ? { steps } : {}),
     };
   }
 
@@ -325,6 +339,8 @@
     .items { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
     .items li { border: 1px solid #ccc; border-radius: 6px; padding: 8px; }
     .items .meta { font-size: 12px; color: #666; }
+    .items li.closed { opacity: .75; }
+    .items .done { font-size: 12px; font-weight: 600; color: #070; }
     .items .reply { font-size: 13px; border-left: 3px solid #888; padding-left: 6px; margin-top: 4px; white-space: pre-wrap; }
     .items a { color: inherit; }
     .tab .replies { color: #fc6; }
@@ -591,7 +607,8 @@
     function toggleMic() {
       if (listening) { listening.stop(); return; }
       const rec = new Speech();
-      rec.lang = cfg.lang === 'de' ? 'de-DE' : 'en-US';
+      // data-speech-lang, else the language of the page, for example "de-DE".
+      rec.lang = cfg.speechLang || document.documentElement.lang || 'en-US';
       rec.interimResults = false;
       rec.continuous = true;
       rec.onresult = (e) => {
@@ -613,6 +630,7 @@
 
     // ---- list of open papercuts ----
     let items = [];
+    const openCount = () => items.filter((i) => i.state !== 'closed').length;
     const seen = () => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {}; } catch (_) { return {}; } };
     const unseen = () => { const s = seen(); return items.filter((i) => i.replyCount > (s[i.issue] || 0)).length; };
     function markSeen() {
@@ -630,7 +648,7 @@
         items = data.items || [];
       } catch (_) { els.listBtn.hidden = true; return; }
       els.listBtn.hidden = false;
-      els.listBtn.textContent = t.list(items.length);
+      els.listBtn.textContent = t.list(openCount());
       const n = unseen();
       els.replies.textContent = n ? t.replies(n) : '';
       if (!els.listView.hidden) renderList();
@@ -649,17 +667,19 @@
       const days = (iso) => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86400000));
       els.items.replaceChildren(...(items.length ? items.map((i) => {
         const last = i.replies && i.replies[i.replies.length - 1];
-        return h('li', { 'data-issue': String(i.issue) },
+        const closed = i.state === 'closed';
+        return h('li', { 'data-issue': String(i.issue), ...(closed ? { class: 'closed' } : {}) },
+          ...(closed ? [h('div', { class: 'done' }, `${t.fixed}${i.fix ? `: ${i.fix}` : ''}`)] : []),
           h('div', {}, h('a', { href: i.url, target: '_blank', rel: 'noopener' }, `#${i.issue}`), ` ${i.title}`),
           h('div', { class: 'meta' }, `${t.kinds[i.kind] || i.kind} · ${t.age(days(i.created))} · ${t.replyCount(i.replyCount)}${i.plus ? ` · +${i.plus}` : ''}`),
-          ...(last ? [h('div', { class: 'reply' }, last.text)] : []),
+          ...(last && !(closed && /^Fixed: /.test(last.text)) ? [h('div', { class: 'reply' }, last.text)] : []),
           ...(i.place && /^https?:\/\//i.test(i.place.url || '') ? [h('div', { class: 'row' }, h('button', { type: 'button', class: 'goto', onclick: () => goTo(i.place) }, t.goto))] : []));
       }) : [h('li', {}, t.empty)]));
     }
     function showList(on) {
       els.listView.hidden = !on;
       els.form.hidden = on;
-      els.listBtn.textContent = on ? t.back : t.list(items.length);
+      els.listBtn.textContent = on ? t.back : t.list(openCount());
       if (on) { renderList(); markSeen(); }
     }
 
@@ -827,6 +847,7 @@
   };
 
   async function start() {
+    t = strings();
     if (DOWNLOAD) { ui = createUi(); return; }
     const s = await status();
     if (!s.reachable) return;

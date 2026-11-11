@@ -318,6 +318,38 @@ def parity_checks(browser, ctl, page_url, width):
     ctx.close()
 
 
+def v022_checks(browser, ctl, page_url, width):
+    """Closed papercuts in the list, own strings for a language, replay steps."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.add_init_script("""window.papercutsStrings = { fr: { send: 'Envoyer', close: 'Fermer' } };
+        window.papercutsReplay = () => [{ click: '#open-dlg' }];""")
+    page.goto(page_url + "?lang=fr")
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    check(f"{width}: a site can add a language", host.locator("button.send").inner_text() == "Envoyer")
+    check(f"{width}: missing strings fall back to English", host.locator("button.pick").inner_text() == "Pick")
+    r = page.evaluate("papercuts.report({kind: 'ux', text: 'steps check ' + innerWidth, from: 'human'})")
+    body = issues(ctl)[-1]["body"]
+    marker = re.search(r"<!-- papercut-place: (\S+) -->", body)
+    place = json.loads(urllib.parse.unquote(marker.group(1))) if marker else {}
+    check(f"{width}: place carries the replay steps", place.get("steps") == [{"click": "#open-dlg"}], str(place.get("steps")))
+    control(ctl, f"/close?n={r['issue']}&fix=done+in+abc1234")
+    page.reload()
+    ready(page)
+    host.locator(".tab").click()
+    host.locator("button.list").click()
+    item = host.locator(f".items li[data-issue='{r['issue']}']")
+    txt = item.inner_text() if item.count() else ""
+    check(f"{width}: list shows a recently closed papercut with its fix", "done in abc1234" in txt and item.get_attribute("class") == "closed", txt)
+    check(f"{width}: no page errors in v0.2.2 checks", not errors, "; ".join(errors))
+    ctx.close()
+
+
 def main():
     harness = subprocess.Popen(["node", str(ROOT / "test/browser/harness.js")], stdout=subprocess.PIPE, text=True)
     try:
@@ -398,6 +430,7 @@ def main():
                 sheet_checks(browser, ctl, page_url, width)
                 list_checks(browser, ctl, page_url, width)
                 parity_checks(browser, ctl, page_url, width)
+                v022_checks(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})

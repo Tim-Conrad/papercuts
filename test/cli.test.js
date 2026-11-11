@@ -160,7 +160,7 @@ test('subcommand help', async () => {
 
 test('version fast path', () => {
   for (const flag of ['-v', '-V', '--version']) {
-    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.2.1\n');
+    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.2.2\n');
   }
 });
 
@@ -366,4 +366,12 @@ test('replay refuses a place that is not http or https', async () => {
   assert.match(r.out, /not an http or https URL/);
   const b = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(issueWith(placeBody())), '--base', 'file:///tmp');
   assert.equal(b.code, 2);
+});
+
+test('replay prints the replay steps', async () => {
+  const place = { url: 'https://shop.lab.t7d.dev/', hash: '', steps: [{ click: '.karte[data-id="k12"]' }] };
+  const n = issueWith(`x\n\n<!-- papercut-place: ${encodeURIComponent(JSON.stringify(place))} -->\n`);
+  const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n));
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /steps: click \.karte\[data-id="k12"\]/);
 });

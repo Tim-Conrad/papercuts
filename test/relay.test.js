@@ -99,7 +99,7 @@ test('body too large', async () => {
 test('status and healthz', async () => {
   const s = await (await fetch(base + '/status', { headers: { origin: ALLOWED } })).json();
   assert.equal(s.ok, true);
-  assert.equal(s.version, '0.2.1');
+  assert.equal(s.version, '0.2.2');
   assert.equal(await (await fetch(base + '/healthz')).text(), 'ok');
 });
 
@@ -259,4 +259,24 @@ test('list: a new report clears the cache of its repo', async () => {
   assert.equal((await (await list('Tim-Conrad/shop')).json()).items.length, 1);
   await post(report({ text: 'two' }));
   assert.equal((await (await list('Tim-Conrad/shop')).json()).items.length, 2);
+});
+
+test('list: also papercuts closed in the last 14 days, with the fix note', async () => {
+  const open = await (await post(report({ text: 'still open' }))).json();
+  const fixed = await (await post(report({ text: 'fixed lately' }))).json();
+  const old = await (await post(report({ text: 'fixed long ago' }))).json();
+  const all = gh.state.issues['Tim-Conrad/shop'];
+  const f = all.find((i) => i.number === fixed.issue);
+  f.state = 'closed'; f.closed_at = new Date().toISOString(); f.commentList.push('Fixed: the button is larger since abc1234'); f.comments = 1;
+  const o = all.find((i) => i.number === old.issue);
+  o.state = 'closed'; o.closed_at = new Date(Date.now() - 30 * 86400000).toISOString();
+  const j = await (await list('Tim-Conrad/shop')).json();
+  const nums = j.items.map((i) => i.issue);
+  assert.ok(nums.includes(open.issue));
+  assert.ok(nums.includes(fixed.issue));
+  assert.ok(!nums.includes(old.issue));
+  const item = j.items.find((i) => i.issue === fixed.issue);
+  assert.equal(item.state, 'closed');
+  assert.equal(item.fix, 'the button is larger since abc1234');
+  assert.equal(j.items.find((i) => i.issue === open.issue).state, 'open');
 });

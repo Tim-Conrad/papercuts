@@ -68,6 +68,10 @@ const controlPort = await listen(http.createServer((req, res) => {
     list.push({ number: n, title: 'papercut: injected', body: url.searchParams.get('body'), state: 'open', labels: [{ name: 'papercut' }, { name: 'kind:bug' }],
       html_url: `https://github.com/Tim-Conrad/shop/issues/${n}`, comments: 0, commentList: [], created_at: new Date().toISOString() });
   }
+  if (url.pathname === '/close') {
+    const issue = (gh.state.issues['Tim-Conrad/shop'] || []).find((i) => i.number === Number(url.searchParams.get('n')));
+    if (issue) { issue.commentList.push(`Fixed: ${url.searchParams.get('fix')}`); issue.comments++; issue.state = 'closed'; issue.closed_at = new Date().toISOString(); }
+  }
   if (url.pathname === '/comment') {
     const issue = (gh.state.issues['Tim-Conrad/shop'] || []).find((i) => i.number === Number(url.searchParams.get('n')));
     if (issue) { issue.commentList.push(url.searchParams.get('text')); issue.comments++; }

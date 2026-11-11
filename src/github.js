@@ -98,6 +98,7 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', u
     user: () => call('GET', '/user'),
     repo: (repo) => call('GET', `/repos/${repo}`),
     listOpen: (repo, label) => listed(repo, { state: 'open', labels: label }, 300),
+    listClosedSince: (repo, label, since) => pages(repo, { state: 'closed', labels: label, since, sort: 'updated', direction: 'desc' }, 100),
     listRecent: (repo, label, n = 100) => listed(repo, { state: 'all', labels: label, sort: 'created', direction: 'desc' }, n),
     // Not documented by GitHub. gh issue create --attach uses it, and it answers {url}. It needs a user token:
     // installation tokens of a GitHub App get a 404 (cli/cli#14309).

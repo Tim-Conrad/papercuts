@@ -71,6 +71,11 @@ function cleanPlace(p) {
   const place = { url: redact(String(p.url ?? '')).slice(0, 500), hash: redact(String(p.hash ?? '')).slice(0, 200), scrollX: num(p.scrollX), scrollY: num(p.scrollY) };
   if (p.viewport && typeof p.viewport === 'object') place.viewport = { width: num(p.viewport.width), height: num(p.viewport.height) };
   if (p.selector) place.selector = String(p.selector).slice(0, 300);
+  // Clicks that bring the page back to the reported state, for example a dialog without a URL (window.papercutsReplay).
+  if (Array.isArray(p.steps)) {
+    const steps = p.steps.filter((x) => x && typeof x.click === 'string' && x.click).slice(0, 5).map((x) => ({ click: x.click.slice(0, 300) }));
+    if (steps.length) place.steps = steps;
+  }
   if (p.storage && typeof p.storage === 'object' && !Array.isArray(p.storage)) {
     place.storage = Object.fromEntries(Object.entries(p.storage).slice(0, 20).map(([k, v]) => [String(k).slice(0, 80), redact(String(v ?? '')).slice(0, 500)]));
   }

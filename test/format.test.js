@@ -218,3 +218,12 @@ test('a place with much non-ASCII text keeps the body under the limit', () => {
   assert.ok(m.place.url.startsWith('https://a.lab.t7d.dev/'));
   assert.match(body, /```yaml\n[\s\S]*\n```/);
 });
+
+test('place keeps up to 5 replay steps with a click selector', () => {
+  const steps = [{ click: '.karte[data-id="k12"]' }, { click: 'x'.repeat(400) }, { nope: 1 }, ...Array.from({ length: 6 }, () => ({ click: '#a' }))];
+  const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', context: { place: { url: 'https://a/', steps } } }, 'human').report;
+  assert.equal(r.place.steps.length, 5);
+  assert.deepEqual(r.place.steps[0], { click: '.karte[data-id="k12"]' });
+  assert.equal(r.place.steps[1].click.length, 300);
+  assert.ok(r.place.steps.every((s) => typeof s.click === 'string'));
+});
