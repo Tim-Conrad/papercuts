@@ -62,6 +62,13 @@ test('add creates then +1', async () => {
   assert.match(home.out, /1,tool,agent,gh-axi drops the body,2/);
 });
 
+test('home view shows a papercut created seconds ago although GitHub lists lag', async () => {
+  gh.state.lag = true;
+  await cli('add', 'tool', 'gh-axi drops the body');
+  const { out } = await cli();
+  assert.match(out, /^count: 1 open/m);
+});
+
 test('add with --repo outside git', async () => {
   let out = '';
   const code = await run(['add', 'path', 'x', '--repo', 'a/b'], { env: { HOME: home }, cwd: home, client, stdout: { write: (s) => { out += s; } } });

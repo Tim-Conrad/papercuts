@@ -58,11 +58,40 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', f
     return out.slice(0, max);
   }
 
+  // GitHub lists a new issue only after about 3 seconds, but a direct GET finds it at once.
+  // Fetch the numbers above the newest listed issue or pull request until GitHub answers 404.
+  async function fresh(repo, params) {
+    const top = await call('GET', `/repos/${repo}/issues?${q({ state: 'all', sort: 'created', direction: 'desc', per_page: 1 })}`);
+    const want = params.labels ? params.labels.split(',') : [];
+    const out = [];
+    for (let n = (top[0]?.number ?? 0) + 1, probes = 0; probes < 20; n++, probes++) {
+      let issue;
+      try {
+        issue = await call('GET', `/repos/${repo}/issues/${n}`);
+      } catch (e) {
+        if (e.status === 404) break;
+        if (e.status === 410) continue; // a deleted issue keeps its number
+        throw e;
+      }
+      const names = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
+      if (issue.pull_request || !want.every((w) => names.includes(w))) continue;
+      if (params.state !== 'all' && issue.state !== params.state) continue;
+      out.unshift(issue);
+    }
+    return out;
+  }
+
+  async function listed(repo, params, max) {
+    const recent = await fresh(repo, params);
+    const seen = new Set(recent.map((i) => i.number));
+    return [...recent, ...(await pages(repo, params, max)).filter((i) => !seen.has(i.number))].slice(0, max);
+  }
+
   return {
     user: () => call('GET', '/user'),
     repo: (repo) => call('GET', `/repos/${repo}`),
-    listOpen: (repo, label) => pages(repo, { state: 'open', labels: label }, 300),
-    listRecent: (repo, label, n = 100) => pages(repo, { state: 'all', labels: label, sort: 'created', direction: 'desc' }, n),
+    listOpen: (repo, label) => listed(repo, { state: 'open', labels: label }, 300),
+    listRecent: (repo, label, n = 100) => listed(repo, { state: 'all', labels: label, sort: 'created', direction: 'desc' }, n),
     getIssue: (repo, n) => call('GET', `/repos/${repo}/issues/${n}`),
     comments: (repo, n) => call('GET', `/repos/${repo}/issues/${n}/comments?per_page=100`),
     createIssue: (repo, issue) => call('POST', `/repos/${repo}/issues`, issue),
