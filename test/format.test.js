@@ -55,7 +55,9 @@ test('rejects unknown source', () => {
 
 test('title is capped', () => {
   const r = ok({ kind: 'ux', text: 'y'.repeat(100), repo: 'a/b' });
-  assert.equal(buildIssue(r, PER).title, 'papercut: ' + 'y'.repeat(70));
+  assert.equal(buildIssue(r, PER).title, 'papercut: ' + 'y'.repeat(69) + '…');
+  const short = normalizeReport({ kind: 'bug', text: 'z'.repeat(70), repo: 'a/b' }, 'human').report;
+  assert.equal(buildIssue(short, PER).title, 'papercut: ' + 'z'.repeat(70));
 });
 
 test('labels per source', () => {

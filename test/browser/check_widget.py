@@ -54,7 +54,7 @@ def v2_base_checks(browser, ctl, page_url, width):
     host = page.locator("papercuts-widget")
     host.locator(".tab").click()
     check(f"{width}: German labels", host.locator("button.send").inner_text() == "Senden", host.locator("button.send").inner_text())
-    check(f"{width}: idea kind offered", host.locator("select option[value=idea]").count() == 1)
+    check(f"{width}: idea kind offered", host.locator(".kinds [data-kind=idea]").count() == 1)
 
     page.goto(page_url)
     ready(page)
@@ -375,7 +375,8 @@ def main():
                 page.locator("#buy").click()
                 target = host.locator(".target").inner_text()
                 check(f"{width}: pick selects element", "buy" in target.lower(), target)
-                host.locator("select").select_option("ux")
+                host.locator(".kinds [data-kind=ux]").click()
+                check(f"{width}: kind chip selected", host.locator(".kinds [data-kind=ux]").get_attribute("aria-checked") == "true")
                 host.locator("textarea").fill(f"Buy button is too small at {width}")
                 host.locator("button.send").click()
                 page.wait_for_function("document.querySelector('papercuts-widget').shadowRoot.querySelector('.status').textContent.includes('#')")

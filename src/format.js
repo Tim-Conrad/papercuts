@@ -170,7 +170,8 @@ function placeMarkerFor(place) {
 }
 
 export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
-  const title = `papercut: ${report.text.slice(0, LIMITS.title)}`;
+  const cut = report.text.length > LIMITS.title;
+  const title = `papercut: ${cut ? `${report.text.slice(0, LIMITS.title - 1).trimEnd()}…` : report.text}`;
   const extra = [];
   if (shotUrl) extra.push(`![papercut](${shotUrl})`);
   else if (shotNote) extra.push(`_${shotNote}_`);
