@@ -14,11 +14,30 @@ function contextLines(report) {
   return `+1${where} (${new Date().toISOString()})\n\n<!-- papercut-id: ${report.id} -->\n`;
 }
 
+// The picture goes to GitHub with the user token. If GitHub refuses it, it stays on the relay.
+// A lost picture never stops the report.
+async function savePicture(report, repo, { client, shots, publicUrl }) {
+  try {
+    return { shotUrl: (await client.uploadAsset(repo, report.shot, `papercut-${report.id}.png`)).url };
+  } catch (e) {
+    if (!(e instanceof GithubError)) throw e;
+  }
+  if (shots && publicUrl) {
+    try {
+      shots.save(report.id, report.shot);
+      return { shotUrl: `${publicUrl.replace(/\/$/, '')}/shots/${report.id}.png` };
+    } catch (e) {
+      console.error('papercuts: picture not stored:', e.message);
+    }
+  }
+  return { shotNote: 'The picture could not be saved.' };
+}
+
 export function targetRepo(report, target) {
   return target?.mode === 'central' ? target.centralRepo : report.repo;
 }
 
-export async function fileReport(report, { client, target }) {
+export async function fileReport(report, { client, target, shots, publicUrl }) {
   const repo = targetRepo(report, target);
   const found = (issue, deduped) => ({ ok: true, issue: issue.number, url: issue.html_url, deduped, repo });
   try {
@@ -34,7 +53,7 @@ export async function fileReport(report, { client, target }) {
         return found(match, true);
       }
     }
-    const issue = buildIssue(report, target);
+    const issue = buildIssue(report, target, report.shot ? await savePicture(report, repo, { client, shots, publicUrl }) : {});
     await client.ensureLabels(repo, issue.labels);
     return found(await client.createIssue(repo, issue), false);
   } catch (e) {

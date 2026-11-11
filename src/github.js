@@ -7,9 +7,11 @@ export class GithubError extends Error {
   }
 }
 
-export function githubClient({ credential, apiBase = 'https://api.github.com', fetchImpl = fetch }) {
+export function githubClient({ credential, apiBase = 'https://api.github.com', uploadBase = 'https://uploads.github.com', assetHosts = ['github.com'], fetchImpl = fetch }) {
   let cached;
-  async function call(method, path, body) {
+  const repoIds = new Map();
+  // A 401 means the token changed (gh auth refresh, a new PAT). Ask the source again, once.
+  async function call(method, path, body, retried = false, { base = apiBase, raw, type } = {}) {
     cached ??= credential.token();
     let token;
     try {
@@ -20,7 +22,7 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', f
     }
     let res;
     try {
-      res = await fetchImpl(apiBase + path, {
+      res = await fetchImpl(base + path, {
         method,
         headers: {
           authorization: `Bearer ${token}`,
@@ -28,8 +30,9 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', f
           'x-github-api-version': '2022-11-28',
           'user-agent': 'papercuts',
           ...(body ? { 'content-type': 'application/json' } : {}),
+          ...(raw ? { 'content-type': type } : {}),
         },
-        body: body ? JSON.stringify(body) : undefined,
+        body: raw ?? (body ? JSON.stringify(body) : undefined),
         signal: AbortSignal.timeout(15000),
       });
     } catch (e) {
@@ -38,6 +41,10 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', f
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (res.status === 401 && !retried) {
+      cached = undefined;
+      return call(method, path, body, true, { base, raw, type });
+    }
     if (!res.ok) {
       const message = String(data?.message || res.statusText || 'error').split(token).join('[redacted]').slice(0, 200);
       const err = new GithubError(res.status, message);
@@ -92,6 +99,32 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', f
     repo: (repo) => call('GET', `/repos/${repo}`),
     listOpen: (repo, label) => listed(repo, { state: 'open', labels: label }, 300),
     listRecent: (repo, label, n = 100) => listed(repo, { state: 'all', labels: label, sort: 'created', direction: 'desc' }, n),
+    // Not documented by GitHub. gh issue create --attach uses it, and it answers {url}. It needs a user token:
+    // installation tokens of a GitHub App get a 404 (cli/cli#14309).
+    async uploadAsset(repo, buffer, name) {
+      if (!repoIds.has(repo)) repoIds.set(repo, (await call('GET', `/repos/${repo}`)).id);
+      const q2 = new URLSearchParams({ content_type: 'image/png', name, repository_id: String(repoIds.get(repo)) });
+      const out = await call('POST', `/user-attachments/assets?${q2}`, undefined, false, { base: uploadBase, raw: buffer, type: 'image/png' });
+      if (!out?.url) throw new GithubError(0, 'the upload gave no url');
+      return { url: out.url };
+    },
+    // A picture of a private repo needs the token. The token goes only to the hosts in assetHosts.
+    // fetch drops the Authorization header when GitHub redirects to its storage host.
+    async download(url) {
+      let u;
+      try { u = new URL(url); } catch { throw new GithubError(0, `not a URL: ${url}`); }
+      if (!assetHosts.includes(u.host)) throw new GithubError(0, `the picture is on ${u.host}, papercuts sends the token only to ${assetHosts.join(', ')}`);
+      cached ??= credential.token();
+      const token = await cached;
+      let res;
+      try {
+        res = await fetchImpl(u, { headers: { authorization: `Bearer ${token}`, 'user-agent': 'papercuts', accept: 'image/png,image/*' }, signal: AbortSignal.timeout(30000) });
+      } catch (e) {
+        throw new GithubError(0, `no answer from GitHub (${e.name})`);
+      }
+      if (!res.ok) throw new GithubError(res.status, `picture download failed`);
+      return Buffer.from(await res.arrayBuffer());
+    },
     getIssue: (repo, n) => call('GET', `/repos/${repo}/issues/${n}`),
     comments: (repo, n) => call('GET', `/repos/${repo}/issues/${n}/comments?per_page=100`),
     createIssue: (repo, issue) => call('POST', `/repos/${repo}/issues`, issue),

@@ -15,5 +15,15 @@
 <h1>Shop</h1>
 <div class="card" data-product="42"><h2 id="title">Blue mug</h2><button id="buy">Buy</button></div>
 <p id="long">Some text to select.</p>
+<img id="pic" src="/pic.png" width="240" height="160" alt="Test picture">
+<button id="open-dlg" type="button">Open dialog</button>
+<dialog id="dlg"><p id="dlg-text">A modal dialog</p><button id="close-dlg" type="button">Close dialog</button></dialog>
+<div id="tall" style="height: 2400px"><p id="far" style="margin-top: 1800px">Far down</p></div>
+<script>
+  document.getElementById('open-dlg').onclick = () => document.getElementById('dlg').showModal();
+  document.getElementById('close-dlg').onclick = () => document.getElementById('dlg').close();
+  // Light dismiss, as many apps do it: a click on the backdrop closes the dialog.
+  document.getElementById('dlg').addEventListener('click', (e) => { if (e.target.id === 'dlg') e.target.close(); });
+</script>
 </body>
 </html>

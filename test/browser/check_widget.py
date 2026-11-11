@@ -4,7 +4,9 @@ Run: uv run --no-project --with playwright python3 test/browser/check_widget.py
 It starts test/browser/harness.js (fake GitHub, relay, test page) and drives Chromium at 412 and 1440 px.
 """
 import json
+import re
 import subprocess
+import urllib.parse
 import sys
 import urllib.request
 from pathlib import Path
@@ -25,6 +27,259 @@ def check(name, ok, detail=""):
 def control(base, path):
     with urllib.request.urlopen(base + path) as r:
         return json.loads(r.read())
+
+
+WIDGET = "document.querySelector('papercuts-widget')"
+SHADOW = WIDGET + "?.shadowRoot"
+
+
+def ready(page):
+    page.wait_for_function(f"window.papercuts && {SHADOW}?.querySelector('.tab')")
+
+
+def issues(ctl):
+    return control(ctl, "/mode?m=ok")["issues"]
+
+
+def v2_base_checks(browser, ctl, page_url, width):
+    """Widget v0.2 base: languages, hide hook, drag, dialogs, Ctrl+Enter, redacted queue, download, place."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860}, accept_downloads=True)
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+
+    page.goto(page_url + "?lang=de")
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    check(f"{width}: German labels", host.locator("button.send").inner_text() == "Senden", host.locator("button.send").inner_text())
+    check(f"{width}: idea kind offered", host.locator("select option[value=idea]").count() == 1)
+
+    page.goto(page_url)
+    ready(page)
+    page.evaluate("window.papercutsHidden = () => true")
+    page.wait_for_function(f"{SHADOW}.querySelector('.tab').hidden === true", timeout=3000)
+    check(f"{width}: hide hook hides the tab", True)
+    page.evaluate("window.papercutsHidden = () => false")
+    page.wait_for_function(f"{SHADOW}.querySelector('.tab').hidden === false", timeout=3000)
+
+    tab = host.locator(".tab")
+    box = tab.bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 - 150, steps=8)
+    page.mouse.up()
+    moved = tab.bounding_box()["y"]
+    check(f"{width}: drag moves the tab", moved < box["y"] - 100, f"{box['y']} -> {moved}")
+    check(f"{width}: drag does not open the panel", host.locator(".panel").is_hidden())
+    page.reload()
+    ready(page)
+    check(f"{width}: tab position kept after reload", abs(host.locator(".tab").bounding_box()["y"] - moved) < 3)
+    page.evaluate("localStorage.removeItem('papercuts-pos-v1')")
+
+    page.click("#open-dlg")
+    page.keyboard.press("Alt+Shift+P")
+    page.wait_for_function(f"{WIDGET}.parentElement?.id === 'dlg'", timeout=3000)
+    host.locator("textarea").click()
+    host.locator("textarea").fill("Dialog report " + str(width))
+    check(f"{width}: panel inside modal dialog is usable", host.locator("textarea").input_value() == "Dialog report " + str(width))
+    check(f"{width}: dialog stays open", page.evaluate("document.getElementById('dlg').open"))
+    before = len(issues(ctl))
+    host.locator("textarea").press("Control+Enter")
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')")
+    check(f"{width}: Ctrl+Enter sends", len(issues(ctl)) == before + 1)
+    host.locator("button.close").click()
+    page.click("#close-dlg")
+    page.wait_for_function(f"{WIDGET}.parentElement === document.documentElement", timeout=3000)
+    check(f"{width}: widget moves back after the dialog closes", True)
+
+    page.evaluate("location.hash = 'far'; window.scrollTo(0, 600)")
+    page.wait_for_timeout(200)
+    r = page.evaluate("papercuts.report({kind: 'ux', text: 'place check ' + innerWidth, from: 'human'})")
+    body = issues(ctl)[-1]["body"]
+    marker = re.search(r"<!-- papercut-place: (\S+) -->", body)
+    place = json.loads(urllib.parse.unquote(marker.group(1))) if marker else {}
+    check(f"{width}: place has hash, scroll and viewport", place.get("hash") == "#far" and place.get("scrollY", 0) > 0 and place.get("viewport", {}).get("width") == width, str(place))
+
+    control(ctl, "/mode?m=redirect")
+    page.evaluate("papercuts.report({kind: 'bug', text: 'password=hunter2 in the log ' + innerWidth, from: 'human'})")
+    stored = page.evaluate("""new Promise((ok) => { const q = indexedDB.open('papercuts-queue-v1', 1);
+        q.onsuccess = () => { const g = q.result.transaction('reports').objectStore('reports').getAll(); g.onsuccess = () => ok(JSON.stringify(g.result)); }; })""")
+    check(f"{width}: queue stores redacted text", "hunter2" not in stored and "[redacted]" in stored, stored[:200])
+    control(ctl, "/mode?m=ok")
+    page.evaluate("papercuts.flush()")
+
+    page.goto(page_url + "?papercuts=download")
+    ready(page)
+    host.locator(".tab").click()
+    check(f"{width}: download mode button", host.locator("button.send").inner_text() == "Download report", host.locator("button.send").inner_text())
+    host.locator("textarea").fill("offline report " + str(width))
+    n_before = len(issues(ctl))
+    with page.expect_download() as dl:
+        host.locator("button.send").click()
+    saved = json.loads(Path(dl.value.path()).read_text())
+    ok = subprocess.run(["node", "--input-type=module", "-e",
+                         "import { normalizeReport } from './src/format.js'; const p = JSON.parse(process.argv[1]); process.exit(normalizeReport(p.report, p.from).ok ? 0 : 1);",
+                         json.dumps(saved)], cwd=ROOT).returncode == 0
+    check(f"{width}: downloaded file is a valid report", ok and saved.get("from") == "human", str(saved)[:200])
+    check(f"{width}: download mode sends nothing", len(issues(ctl)) == n_before)
+    check(f"{width}: no page errors in v0.2 checks", not errors, "; ".join(errors))
+    ctx.close()
+
+
+def sheet_checks(browser, ctl, page_url, width):
+    """Drawing sheet with pen and pins, screen capture and voice buttons."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    check(f"{width}: no mark button before a picture is picked", host.locator("button.mark-pic").is_hidden())
+    host.locator("button.pick").click()
+    page.locator("#pic").click()
+    check(f"{width}: mark button after picking a picture", host.locator("button.mark-pic").is_visible())
+    host.locator("button.mark-pic").click()
+    canvas = host.locator(".sheet canvas")
+    canvas.wait_for(state="visible", timeout=3000)
+    b = canvas.bounding_box()
+    def at(fx, fy):
+        return b["x"] + b["width"] * fx, b["y"] + b["height"] * fy
+    for y in (0.3, 0.6):
+        page.mouse.move(*at(0.2, y)); page.mouse.down(); page.mouse.move(*at(0.7, y), steps=6); page.mouse.up()
+    host.locator(".sheet button.tool-pin").click()
+    for fx in (0.3, 0.8):
+        page.mouse.click(*at(fx, 0.5))
+    pins = host.locator(".sheet .pins input")
+    check(f"{width}: two pins with text fields", pins.count() == 2, str(pins.count()))
+    host.locator(".sheet button.undo").click()
+    check(f"{width}: undo removes the last mark", pins.count() == 1, str(pins.count()))
+    page.mouse.click(*at(0.8, 0.5))
+    pins.nth(0).fill("too dark")
+    pins.nth(1).fill("cut off")
+    host.locator(".sheet button.done").click()
+    check(f"{width}: sheet closes and the panel shows the picture", host.locator(".sheet").is_hidden() and host.locator(".panel img.preview").is_visible())
+    host.locator("textarea").fill(f"marked picture {width}")
+    before = len(issues(ctl))
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    st = control(ctl, "/mode?m=ok")
+    body = st["issues"][-1]["body"] if len(st["issues"]) > before else ""
+    check(f"{width}: issue has the picture and the pins", "![papercut](" in body and "1. too dark" in body and "2. cut off" in body, body[:300])
+    check(f"{width}: uploaded file is a PNG", st["uploads"] and st["uploads"][-1] == "89504e470d0a1a0a", str(st["uploads"][-1:]))
+    check(f"{width}: panel forgets the picture after sending", host.locator(".panel img.preview").is_hidden())
+    if width > 800:
+        check(f"{width}: mark screen offered on desktop", host.locator("button.mark-screen").is_visible())
+    check(f"{width}: no page errors in sheet checks", not errors, "; ".join(errors))
+    ctx.close()
+
+    touch = browser.new_context(viewport={"width": width, "height": 860}, has_touch=True, is_mobile=width < 800)
+    page = touch.new_page()
+    page.add_init_script("delete window.SpeechRecognition; delete window.webkitSpeechRecognition;")
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    if width < 800:
+        check(f"{width}: mark screen hidden on touch", host.locator("button.mark-screen").is_hidden())
+    check(f"{width}: microphone hidden without speech API", host.locator("button.mic").is_hidden())
+    touch.close()
+
+
+def list_checks(browser, ctl, page_url, width):
+    """The list of open papercuts in the panel: replies, badge, go to place."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url + "#far")
+    ready(page)
+    page.evaluate("window.scrollTo(0, 700)")
+    r = page.evaluate("papercuts.report({kind: 'ux', text: 'list check ' + innerWidth, from: 'human'})")
+    n = r.get("issue")
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    host.locator("button.list").click()
+    items = host.locator(".items li")
+    titles = items.all_inner_texts()
+    check(f"{width}: list shows the open papercuts", any(f"list check {width}" in x for x in titles), str(titles)[:200])
+    page.evaluate("history.replaceState(null, '', location.pathname); window.scrollTo(0, 0)")
+    host.locator(f".items li[data-issue='{n}'] button.goto").click()
+    page.wait_for_timeout(300)
+    check(f"{width}: go to place restores hash and scroll", page.evaluate("location.hash") == "#far" and page.evaluate("scrollY") > 300, page.evaluate("location.hash + ' ' + scrollY"))
+
+    control(ctl, f"/comment?n={n}&text=Fixed+in+abc1234")
+    page.reload()
+    ready(page)
+    page.wait_for_function(f"{SHADOW}.querySelector('.tab .replies')?.textContent.trim().length > 0", timeout=5000)
+    check(f"{width}: badge shows a new reply", True)
+    host.locator(".tab").click()
+    host.locator("button.list").click()
+    reply = host.locator(f".items li[data-issue='{n}'] .reply").inner_text()
+    check(f"{width}: list shows the reply text", "Fixed in abc1234" in reply, reply)
+    page.reload()
+    ready(page)
+    page.wait_for_timeout(800)
+    check(f"{width}: badge clears after the list was opened", host.locator(".tab .replies").inner_text().strip() == "")
+
+    evil = urllib.parse.quote("x\n\n<!-- papercut-place: " + urllib.parse.quote(json.dumps({"url": "javascript:window.__pwned=1", "hash": ""})) + " -->\n")
+    control(ctl, "/inject?body=" + evil)
+    page.reload()
+    ready(page)
+    host.locator(".tab").click()
+    host.locator("button.list").click()
+    item = host.locator(".items li", has_text="injected")
+    if item.locator("button.goto").count():
+        item.locator("button.goto").click()
+        page.wait_for_timeout(300)
+    check(f"{width}: go to place never runs a javascript: URL", page.evaluate("window.__pwned") is None)
+    host.locator("button.close").click() if host.locator("button.close").is_visible() else None
+
+    page.goto(page_url)
+    ready(page)
+    page.click("#open-dlg")
+    page.keyboard.press("Alt+Shift+P")
+    page.wait_for_function(f"{WIDGET}.parentElement?.id === 'dlg'", timeout=3000)
+    host.locator("button.pick").click()
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    check(f"{width}: Esc in pick mode keeps the dialog open", page.evaluate("document.getElementById('dlg').open"))
+    check(f"{width}: Esc in pick mode returns to the panel", host.locator(".panel").is_visible())
+    host.locator("button.close").click()
+    page.click("#close-dlg")
+
+    # A noisy picture as large as the sheet allows: its PNG is far above 8 MB.
+    page.evaluate("""(() => { const c = document.createElement('canvas'); c.width = 2000; c.height = 2000; const x = c.getContext('2d');
+        const d = x.createImageData(2000, 2000); for (let i = 0; i < d.data.length; i++) d.data[i] = (Math.random() * 256) | 0; x.putImageData(d, 0, 0);
+        const img = document.createElement('img'); img.id = 'noise'; img.width = 200; img.height = 200; img.src = c.toDataURL('image/png'); document.body.prepend(img); })()""")
+    page.wait_for_function("document.getElementById('noise').complete")
+    host.locator(".tab").click()
+    host.locator("button.pick").click()
+    page.locator("#noise").click()
+    host.locator("button.mark-pic").click()
+    host.locator(".sheet button.done").click()
+    host.locator("textarea").fill(f"noisy picture {width}")
+    before = len(issues(ctl))
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.length > 0 && !{SHADOW}.querySelector('.status').textContent.includes('…')", timeout=60000)
+    st = host.locator(".status").inner_text()
+    check(f"{width}: a picture above 8 MB still sends the report", len(issues(ctl)) == before + 1 and "#" in st, st)
+    host.locator("button.close").click()
+
+    control(ctl, "/mode?m=nolist")
+    page.reload()
+    ready(page)
+    page.wait_for_timeout(800)
+    host.locator(".tab").click()
+    check(f"{width}: no list button when the relay refuses the list", host.locator("button.list").is_hidden())
+    control(ctl, "/mode?m=ok")
+    check(f"{width}: no page errors in list checks", not errors, "; ".join(errors))
+    ctx.close()
 
 
 def main():
@@ -101,6 +356,11 @@ def main():
                 check(f"{width}: no horizontal scroll", not sideways)
                 page.screenshot(path=str(ROOT / f".superpowers/widget-{width}.png"))
                 ctx.close()
+
+            for width in (412, 1440):
+                v2_base_checks(browser, ctl, page_url, width)
+                sheet_checks(browser, ctl, page_url, width)
+                list_checks(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})

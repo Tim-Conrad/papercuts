@@ -4,14 +4,18 @@ import { fakeGithub } from './fake-github.js';
 import { githubClient } from '../src/github.js';
 import { createRelay } from '../src/relay.js';
 import { loadConfig, originAllowed } from '../src/config.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-let gh, relay, base;
+let gh, relay, base, shotsDir;
 const ALLOWED = 'https://shop.lab.t7d.dev';
 
 beforeEach(async () => {
   gh = await fakeGithub();
   const client = githubClient({ credential: { token: async () => gh.token, describe: () => 't' }, apiBase: gh.apiBase });
-  const config = loadConfig({ PAPERCUTS_REPOS: 'Tim-Conrad/*,x/one' });
+  shotsDir = mkdtempSync(join(tmpdir(), 'pc-relay-shots-'));
+  const config = loadConfig({ PAPERCUTS_REPOS: 'Tim-Conrad/*,x/one', PAPERCUTS_SHOTS_DIR: shotsDir, PAPERCUTS_PUBLIC_URL: 'https://papercuts.lab.example' });
   relay = createRelay(config, { client });
   await new Promise((r) => relay.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${relay.address().port}`;
@@ -88,14 +92,14 @@ test('github failure is 502', async () => {
 });
 
 test('body too large', async () => {
-  const res = await post(null, { raw: 'x'.repeat(300 * 1024) });
+  const res = await post(null, { raw: 'x'.repeat(13 * 1024 * 1024) });
   assert.equal(res.status, 413);
 });
 
 test('status and healthz', async () => {
   const s = await (await fetch(base + '/status', { headers: { origin: ALLOWED } })).json();
   assert.equal(s.ok, true);
-  assert.equal(s.version, '0.1.0');
+  assert.equal(s.version, '0.2.0');
   assert.equal(await (await fetch(base + '/healthz')).text(), 'ok');
 });
 
@@ -163,4 +167,96 @@ test('utf-8 split across chunks survives', async () => {
   });
   assert.equal(data.ok, true);
   assert.ok(gh.state.issues['Tim-Conrad/shop'][0].title.includes('überlappt'));
+});
+
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+
+test('serves a stored picture', async () => {
+  writeFileSync(join(shotsDir, 'abc-1.png'), PNG);
+  const res = await fetch(base + '/shots/abc-1.png');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), PNG);
+});
+
+test('picture paths outside the store give 404', async () => {
+  for (const p of ['/shots/../x.png', '/shots/%2e%2e%2fx.png', '/shots/a.txt', '/shots/missing.png']) {
+    const res = await fetch(base + p);
+    assert.equal(res.status, 404, p);
+  }
+});
+
+test('a report with a picture of 9 MB fails cleanly, never 500', async () => {
+  const shot = 'data:image/png;base64,' + Buffer.concat([PNG, Buffer.alloc(9 * 1024 * 1024)]).toString('base64');
+  const res = await post(report({ shot }));
+  assert.ok([400, 413].includes(res.status), String(res.status));
+  const j = await res.json();
+  assert.equal(j.ok, false);
+  assert.ok(j.help);
+});
+
+test('a report with a picture of 1 MB goes through', async () => {
+  const shot = 'data:image/png;base64,' + Buffer.concat([PNG, Buffer.alloc(1024 * 1024)]).toString('base64');
+  const res = await post(report({ shot }));
+  assert.equal(res.status, 200);
+});
+
+const list = (repo, origin = ALLOWED) => fetch(`${base}/list?repo=${encodeURIComponent(repo)}`, { headers: origin ? { origin } : {} });
+
+test('list: open papercuts with replies and place', async () => {
+  const place = { url: 'https://shop.lab.t7d.dev/', hash: '#a', scrollX: 0, scrollY: 10 };
+  const one = await (await post(report({ text: 'first', context: { place } }))).json();
+  await post(report({ text: 'second' }));
+  const issue = gh.state.issues['Tim-Conrad/shop'].find((i) => i.number === one.issue);
+  issue.commentList.push('+1 at x', 'Fixed in abc1234, please check');
+  issue.comments = 2;
+  const res = await list('Tim-Conrad/shop');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('access-control-allow-origin'), ALLOWED);
+  const j = await res.json();
+  assert.equal(j.ok, true);
+  assert.equal(j.items.length, 2);
+  const first = j.items.find((i) => i.issue === one.issue);
+  assert.equal(first.title, 'first');
+  assert.equal(first.kind, 'bug');
+  assert.equal(first.from, 'human');
+  assert.equal(first.replyCount, 1);
+  assert.equal(first.plus, 1);
+  assert.equal(first.replies[0].text, 'Fixed in abc1234, please check');
+  assert.deepEqual(first.place, place);
+});
+
+test('list: foreign origin gets 403 and no items', async () => {
+  await post(report());
+  const res = await list('Tim-Conrad/shop', 'https://evil.example');
+  assert.equal(res.status, 403);
+  const j = await res.json();
+  assert.equal(j.items, undefined);
+});
+
+test('list: without Origin (the CLI) is allowed', async () => {
+  await post(report());
+  const res = await list('Tim-Conrad/shop', null);
+  assert.equal(res.status, 200);
+});
+
+test('list: repo outside the allow list gets 403', async () => {
+  const res = await list('evil/repo');
+  assert.equal(res.status, 403);
+  assert.equal(gh.state.requests.length, 0);
+});
+
+test('list: a second call within 30 s makes no GitHub request', async () => {
+  await post(report());
+  await list('Tim-Conrad/shop');
+  const n = gh.state.requests.length;
+  await list('Tim-Conrad/shop');
+  assert.equal(gh.state.requests.length, n);
+});
+
+test('list: a new report clears the cache of its repo', async () => {
+  await post(report({ text: 'one' }));
+  assert.equal((await (await list('Tim-Conrad/shop')).json()).items.length, 1);
+  await post(report({ text: 'two' }));
+  assert.equal((await (await list('Tim-Conrad/shop')).json()).items.length, 2);
 });

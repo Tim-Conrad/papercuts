@@ -2,7 +2,7 @@
 import http from 'node:http';
 
 export async function fakeGithub({ token = 'test-token-123' } = {}) {
-  const state = { issues: {}, labels: {}, requests: [], fail: null, next: 1, lag: false, hidden: new Set() };
+  const state = { issues: {}, labels: {}, requests: [], fail: null, next: 1, lag: false, hidden: new Set(), uploads: [], uploadFail: null };
   const repoOf = (owner, name) => {
     const key = `${owner}/${name}`;
     state.issues[key] ??= [];
@@ -10,21 +10,38 @@ export async function fakeGithub({ token = 'test-token-123' } = {}) {
     return key;
   };
   const server = http.createServer(async (req, res) => {
-    let raw = '';
-    for await (const chunk of req) raw += chunk;
-    const body = raw ? JSON.parse(raw) : null;
+    const parts = [];
+    for await (const chunk of req) parts.push(chunk);
+    const buf = Buffer.concat(parts);
     const url = new URL(req.url, 'http://x');
+    const isUpload = url.pathname === '/user-attachments/assets';
+    const body = !isUpload && buf.length ? JSON.parse(buf.toString('utf8')) : null;
     state.requests.push({ method: req.method, path: url.pathname, query: url.search, body, auth: req.headers.authorization });
     const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
     if (state.fail) return send(state.fail, { message: `Bad credentials ${token}` });
+    if (state.failOnce) { const code = state.failOnce; state.failOnce = null; return send(code, { message: 'Bad credentials' }); }
     if (req.headers.authorization !== `Bearer ${token}`) return send(401, { message: 'Bad credentials' });
     if (url.pathname === '/user') return send(200, { login: 'tester' });
+    // A picture behind the login, like github.com/user-attachments/assets/<id> of a private repo.
+    let a = url.pathname.match(/^\/assets\/(\d+)$/);
+    if (a && req.method === 'GET') {
+      const up = state.uploads[Number(a[1]) - 1];
+      if (!up) return send(404, { message: 'Not Found' });
+      res.writeHead(200, { 'content-type': 'image/png' });
+      return res.end(up.bytes);
+    }
+    // Picture upload, as on uploads.github.com. Answers {url}, like the real endpoint (checked 2026-11-11).
+    if (isUpload && req.method === 'POST') {
+      if (state.uploadFail) return send(state.uploadFail, { message: 'Not Found' });
+      state.uploads.push({ query: Object.fromEntries(url.searchParams), type: req.headers['content-type'], bytes: buf });
+      return send(201, { url: `https://github.com/user-attachments/assets/fake-${state.uploads.length}` });
+    }
     let m = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/);
     if (!m) return send(404, { message: 'Not Found' });
     const key = repoOf(m[1], m[2]);
     const rest = m[3] || '';
     const list = state.issues[key];
-    if (rest === '' && req.method === 'GET') return send(200, { full_name: key, permissions: { push: true } });
+    if (rest === '' && req.method === 'GET') return send(200, { id: 4242, full_name: key, permissions: { push: true } });
     if (rest === '/labels' && req.method === 'POST') {
       if (state.labels[key].has(body.name)) return send(422, { message: 'Validation Failed', errors: [{ code: 'already_exists' }] });
       state.labels[key].add(body.name); return send(201, { name: body.name });

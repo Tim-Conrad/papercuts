@@ -6,17 +6,32 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { normalizeReport } from './format.js';
 import { fileReport } from './file.js';
+import { shotStore } from './shots.js';
+import { openPapercuts } from './list.js';
 import { originAllowed, repoAllowed, VERSION } from './config.js';
 
 const WIDGET = fileURLToPath(new URL('../widget/papercuts.js', import.meta.url));
-const MAX_BODY = 256 * 1024;
+// 8 MB of PNG is about 10.7 MB as base64, plus the context.
+const MAX_BODY = 12 * 1024 * 1024;
 
 export function createRelay(config, { client }) {
   // Two tabs can flush the same queued report at once. The second waits for the first, so one id makes one issue.
   const inFlight = new Map();
+  const shots = shotStore(config.shotsDir);
+  // Each open page asks for the list. The cache (30 s by default) keeps a few tabs from using up the GitHub rate limit.
+  const listCache = new Map();
+  const listFor = (repo) => {
+    const hit = listCache.get(repo);
+    if (hit && Date.now() - hit.at < config.listCacheMs) return hit.items;
+    const central = config.target.mode === 'central';
+    const items = openPapercuts(client, central ? config.target.centralRepo : repo, central ? `papercut,project:${repo}` : 'papercut');
+    listCache.set(repo, { at: Date.now(), items });
+    items.catch(() => listCache.delete(repo));
+    return items;
+  };
   const fileOnce = (report) => {
     if (!inFlight.has(report.id)) {
-      inFlight.set(report.id, fileReport(report, { client, target: config.target }).finally(() => inFlight.delete(report.id)));
+      inFlight.set(report.id, fileReport(report, { client, target: config.target, shots, publicUrl: config.publicUrl }).finally(() => inFlight.delete(report.id)));
     }
     return inFlight.get(report.id);
   };
@@ -38,7 +53,27 @@ export function createRelay(config, { client }) {
       if (req.method === 'GET' && url.pathname === '/status') {
         return send(200, { ok: true, version: VERSION, target: config.target.mode });
       }
-      if (url.pathname !== '/report') return send(404, { ok: false, error: 'not found', help: 'the relay has /papercuts.js, /status and /report' });
+      if (req.method === 'GET' && url.pathname.startsWith('/shots/')) {
+        const m = url.pathname.match(/^\/shots\/([A-Za-z0-9_-]{1,64})\.png$/);
+        const png = m && shots.read(m[1]);
+        if (!png) return send(404, { ok: false, error: 'no such picture', help: 'pictures are at /shots/<report id>.png' });
+        res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
+        return res.end(png);
+      }
+      if (req.method === 'GET' && url.pathname === '/list') {
+        // A browser sends Origin, and only allowed sites may read titles. The CLI on the proxy network sends none.
+        if (origin && !allowed) return send(403, { ok: false, error: 'origin not allowed', help: 'add the site origin to PAPERCUTS_ORIGINS' }, 'application/json', true);
+        const repo = url.searchParams.get('repo') || '';
+        if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) || !repoAllowed(repo, config.repos)) {
+          return send(403, { ok: false, error: `repo ${repo} not allowed`, help: 'add the repo to PAPERCUTS_REPOS' });
+        }
+        try {
+          return send(200, { ok: true, repo, items: await listFor(repo) });
+        } catch (e) {
+          return send(502, { ok: false, error: `github: ${e.status ?? 0} ${e.message}`, help: 'try again later' });
+        }
+      }
+      if (url.pathname !== '/report') return send(404, { ok: false, error: 'not found', help: 'the relay has /papercuts.js, /status, /report, /list and /shots/<id>.png' });
       if (req.method !== 'POST') return send(405, { ok: false, error: 'use POST', help: 'POST a JSON text body to /report' });
       // The page must be able to read this refusal, or it takes it for a network error and retries forever.
       if (!allowed) return send(403, { ok: false, retry: false, error: 'origin not allowed', help: 'add the site origin to PAPERCUTS_ORIGINS' }, 'application/json', true);
@@ -60,6 +95,7 @@ export function createRelay(config, { client }) {
         return send(403, { ok: false, retry: false, error: `repo ${norm.report.repo} not allowed`, help: 'add the repo to PAPERCUTS_REPOS' });
       }
       const result = await fileOnce(norm.report);
+      if (result.ok) listCache.delete(norm.report.repo);
       return send(result.ok ? 200 : result.retry ? 502 : 422, result);
     } catch (e) {
       console.error('papercuts relay:', e.message);

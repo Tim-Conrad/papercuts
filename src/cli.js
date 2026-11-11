@@ -1,11 +1,13 @@
 // The papercuts CLI for agents. It follows the AXI rules (https://axi.md): TOON on stdout,
 // content first, errors with a help line, exit 0 / 1 / 2, no prompts.
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { toon } from './toon.js';
-import { normalizeReport, redact, shorten, KINDS } from './format.js';
+import { openPapercuts } from './list.js';
+import { normalizeReport, redact, shorten, parseMarkers, KINDS } from './format.js';
+import { execFile } from 'node:child_process';
 import { fileReport, targetRepo } from './file.js';
 import { githubClient, GithubError } from './github.js';
 import { credentialFrom } from './credential.js';
@@ -55,15 +57,40 @@ const COMMANDS = {
     defaults: ['--fix: required'],
     examples: ['papercuts done 12 --fix "gh-axi pr view prints the body since commit abc1234"'],
   },
+  shot: {
+    usage: 'papercuts shot <id> [--out <file>] [--repo <owner/name>]',
+    about: 'Save the picture of a papercut as a PNG file.',
+    args: ['id'],
+    flags: { out: 'string', repo: 'string' },
+    defaults: ['--out: papercut-<id>.png in this folder', 'PAPERCUTS_RELAY_INTERNAL: unset, then relay pictures come from their public URL'],
+    examples: ['papercuts shot 12', 'papercuts shot 12 --out /tmp/p12.png'],
+  },
+  replay: {
+    usage: 'papercuts replay <id> [--out <file>] [--base <url>] [--repo <owner/name>]',
+    about: 'Show what the reporter saw: the page with the same size, place and storage, the element in a red frame.',
+    args: ['id'],
+    flags: { out: 'string', base: 'string', repo: 'string' },
+    defaults: ['--out: papercut-<id>.replay.png in this folder', '--base: the origin of the report', 'needs uv for the picture, else it prints the replay data'],
+    examples: ['papercuts replay 12', 'papercuts replay 12 --base https://shop-dev.lab.t7d.dev'],
+  },
+  import: {
+    usage: 'papercuts import <file.json>',
+    about: 'File a report that the widget saved as a file (?papercuts=download). A second import is a no-op.',
+    args: ['file'],
+    flags: {},
+    defaults: ['the file holds {"from": "human", "report": {...}}'],
+    examples: ['papercuts import ~/Downloads/papercut-2026-11-11.json'],
+  },
   setup: {
-    usage: 'papercuts setup --target per-project|central [--repo <owner/name>] [--hooks claude,codex|none]',
-    about: 'Choose where papercuts go, and show them at the start of each agent session.',
+    usage: 'papercuts setup --target per-project|central [--repo <owner/name>] [--credential gh|file] [--token-file <path>] [--hooks claude,codex|none]',
+    about: 'Choose where papercuts go, the GitHub credential, and show papercuts at the start of each agent session.',
     args: [],
-    flags: { target: 'string', repo: 'string', hooks: 'string' },
+    flags: { target: 'string', repo: 'string', hooks: 'string', credential: 'string', 'token-file': 'string' },
     required: ['target'],
-    defaults: ['--target: required', '--repo: required for central', '--hooks: claude,codex'],
+    defaults: ['--target: required', '--repo: required for central', '--credential: gh (the gh login; can upload pictures)',
+      '--token-file: required for --credential file', '--hooks: claude,codex'],
     examples: ['papercuts setup --target per-project', 'papercuts setup --target central --repo Tim-Conrad/papercuts-inbox',
-      'papercuts setup --target per-project --hooks none'],
+      'papercuts setup --target per-project --credential file --token-file ~/.config/papercuts/token', 'papercuts setup --target per-project --hooks none'],
   },
   doctor: {
     usage: 'papercuts doctor [--repo <owner/name>]',
@@ -199,22 +226,33 @@ If a papercut needs a decision from Tim, do not close it. Write two or three opt
 `;
 }
 
+function issueNumber(arg, command) {
+  const n = Number(arg);
+  if (!Number.isInteger(n) || n < 1) throw usageError(`<id> must be an issue number, not "${arg}"`, `usage: ${COMMANDS[command].usage}`);
+  return n;
+}
+
+const REPLAY_PY = fileURLToPath(new URL('../replay/replay.py', import.meta.url));
+
+function hasUv(env) {
+  return new Promise((resolve) => execFile('uv', ['--version'], { env, timeout: 10000 }, (err) => resolve(!err)));
+}
+
+// Playwright runs through uv, so papercuts needs no npm dependency for it.
+function runReplay(data, env) {
+  return new Promise((resolve, reject) => {
+    const child = execFile('uv', ['run', '--no-project', '--with', 'playwright', 'python3', REPLAY_PY], { env, timeout: 180000, maxBuffer: 1 << 20 },
+      (err, stdout, stderr) => {
+        if (err) return reject(runError(`replay failed: ${String(stderr || err.message).trim().split('\n').pop()}`, 'Run `uv run --with playwright playwright install chromium`, or set PAPERCUTS_CHROME to a Chrome binary'));
+        resolve(String(stdout).trim().split('\n').pop());
+      });
+    child.stdin.end(JSON.stringify(data));
+  });
+}
+
 async function openRows(client, repo, label) {
-  const issues = await client.listOpen(repo, label);
-  return Promise.all(issues.map(async (i) => {
-    const names = i.labels.map((l) => (typeof l === 'string' ? l : l.name));
-    let plus = 0;
-    if (i.comments > 0) plus = (await client.comments(repo, i.number)).filter((c) => /^\+1\b/.test(c.body || '')).length;
-    return {
-      id: i.number,
-      kind: (names.find((n) => n.startsWith('kind:')) || 'kind:other').slice(5),
-      from: (names.find((n) => n.startsWith('from:')) || 'from:human').slice(5),
-      title: String(i.title).replace(/^papercut: /, ''),
-      count: 1 + plus,
-      url: i.html_url,
-      created: i.created_at,
-      where: (String(i.body).match(/^where: (.*)$/m) || [])[1] || '',
-    };
+  return (await openPapercuts(client, repo, label)).map((p) => ({
+    id: p.issue, kind: p.kind, from: p.from, title: p.title, count: 1 + p.plus, url: p.url, created: p.created, where: p.where,
   }));
 }
 
@@ -222,6 +260,14 @@ function scopeLines(target, centralRepo) {
   return target === 'central'
     ? [`fine-grained token, repository access: only ${centralRepo}`, 'permission: Issues: read and write']
     : ['fine-grained token, repository access: each repo in PAPERCUTS_REPOS', 'permission: Issues: read and write'];
+}
+
+// Write a temp file, then rename it, so that a crash never leaves half a settings file.
+function writeAtomic(file, text) {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, text);
+  renameSync(tmp, file);
 }
 
 function installHook(file, command) {
@@ -238,8 +284,7 @@ function installHook(file, command) {
   } else {
     list.push({ matcher: '', hooks: [{ type: 'command', command, timeout: 10 }] });
   }
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
+  writeAtomic(file, JSON.stringify(data, null, 2) + '\n');
 }
 
 export async function run(argv, ctx = {}) {
@@ -284,20 +329,24 @@ export async function run(argv, ctx = {}) {
       if (flags.target === 'central' && !flags.repo) throw usageError('--repo is required for --target central', 'Run `papercuts setup --target central --repo <owner/name>`');
       const hooks = (flags.hooks ?? 'claude,codex').split(',').map((s) => s.trim()).filter((h) => h && h !== 'none');
       for (const h of hooks) if (!['claude', 'codex'].includes(h)) throw usageError(`unknown hook target "${h}"`, 'use --hooks claude,codex or --hooks none');
-      const config = { target: flags.target, ...(flags.target === 'central' ? { centralRepo: flags.repo } : {}) };
+      const credential = flags.credential ?? 'gh';
+      if (!['gh', 'file'].includes(credential)) throw usageError(`--credential must be gh or file, not "${credential}"`, `usage: ${COMMANDS.setup.usage}`);
+      if (credential === 'file' && !flags['token-file']) throw usageError('--token-file is required for --credential file', 'Run `papercuts setup --target <target> --credential file --token-file <path>`');
+      const config = { target: flags.target, ...(flags.target === 'central' ? { centralRepo: flags.repo } : {}), credential,
+        ...(credential === 'file' ? { tokenFile: flags['token-file'] } : {}) };
       const file = configPath(env);
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+      writeAtomic(file, JSON.stringify(config, null, 2) + '\n');
       const home = env.HOME || homedir();
-      const command = `'${process.execPath}' '${BIN}' --hook`;
+      // papercuts from the PATH survives a Node upgrade. The stored path is the fallback.
+      const command = `sh -c 'command -v papercuts >/dev/null 2>&1 && exec papercuts --hook || exec "${process.execPath}" "${BIN}" --hook'`;
       const files = { claude: join(home, '.claude', 'settings.json'), codex: join(home, '.codex', 'hooks.json') };
       for (const h of hooks) installHook(files[h], command);
       print({
         config: tilde(file, env),
         target: flags.target + (config.centralRepo ? ` (${config.centralRepo})` : ''),
         hooks: hooks.length ? hooks.map((h) => tilde(files[h], env)) : ['none'],
-        'token for the relay': scopeLines(flags.target, config.centralRepo),
-        'token for the CLI': ['the gh login of this host (gh auth login)'],
+        credential: credential === 'gh' ? ['the gh login of this host (gh auth login)', 'scope: all scopes of your gh login, wider than issues', 'pictures: upload to the issue works']
+          : [`token file ${tilde(flags['token-file'], env)}`, ...scopeLines(flags.target, config.centralRepo), 'pictures: GitHub refuses them, the relay keeps them'],
         help: ['Run `papercuts doctor` to check the credential'],
       });
       return 0;
@@ -311,6 +360,18 @@ export async function run(argv, ctx = {}) {
       await new Promise((r) => server.listen(config.port, '0.0.0.0', r));
       process.stderr.write(`papercuts relay ${VERSION} on :${config.port}, target ${config.target.mode}, credential ${credentialFrom(config.credential).describe()}\n`);
       await new Promise(() => {});
+    }
+
+    if (command === 'import') {
+      let payload;
+      try { payload = JSON.parse(readFileSync(args[0], 'utf8')); } catch (e) { throw runError(`cannot read ${args[0]}: ${e.message}`, 'give the JSON file that the widget saved'); }
+      const norm = normalizeReport(payload?.report, payload?.from ?? 'human');
+      if (!norm.ok) throw runError(norm.error, norm.help);
+      const client = ctx.client || githubClient({ credential: credentialFrom(config.credential) });
+      const r = await fileReport(norm.report, { client, target: config.target });
+      if (!r.ok) throw runError(r.error, r.help);
+      print({ papercut: r.deduped ? `added +1 to #${r.issue}` : `#${r.issue} created`, url: r.url });
+      return 0;
     }
 
     const repo = flags.repo || repoFromGit(cwd);
@@ -346,6 +407,55 @@ export async function run(argv, ctx = {}) {
       const r = flags.repo ? ` --repo ${flags.repo}` : '';
       out.help = cut ? [`Run \`papercuts view ${n} --full${r}\` for the whole body`] : [`Run \`papercuts done ${n} --fix "<what changed>"${r}\` after a fix`];
       print(out);
+      return 0;
+    }
+
+    if (command === 'shot') {
+      const n = issueNumber(args[0], 'shot');
+      const body = String((await client.getIssue(where, n)).body || '');
+      const url = (body.match(/!\[papercut\]\(([^)\s]+)\)/) || body.match(/(https?:\/\/\S+\/shots\/[A-Za-z0-9_-]+\.png)/) || [])[1];
+      if (!url) throw runError(`papercut #${n} has no picture`, `Run \`papercuts view ${n}\` to read it`);
+      let png;
+      if (/\/shots\/[A-Za-z0-9_-]+\.png$/.test(url)) {
+        // A picture on the relay. From this host, the relay answers on the proxy network without a login.
+        const internal = env.PAPERCUTS_RELAY_INTERNAL;
+        const from = internal ? internal.replace(/\/$/, '') + new URL(url).pathname : url;
+        const res = await fetch(from, { redirect: 'manual', signal: AbortSignal.timeout(30000) }).catch((e) => ({ ok: false, status: 0, statusText: e.message }));
+        if (!res.ok) throw runError(`the relay did not give the picture (${res.status})`, 'set PAPERCUTS_RELAY_INTERNAL to the relay address on the proxy network, for example http://172.30.0.250:8000');
+        png = Buffer.from(await res.arrayBuffer());
+      } else {
+        png = await client.download(url);
+      }
+      const out = flags.out || join(cwd, `papercut-${n}.png`);
+      writeFileSync(out, png);
+      print({ shot: tilde(out, env), bytes: png.length });
+      return 0;
+    }
+
+    if (command === 'replay') {
+      const n = issueNumber(args[0], 'replay');
+      const place = parseMarkers((await client.getIssue(where, n)).body).place;
+      if (!place?.url) throw runError(`papercut #${n} has no place`, 'only reports from the widget v0.2 or later have a place');
+      const web = (u) => { try { return ['http:', 'https:'].includes(new URL(u).protocol); } catch { return false; } };
+      if (!web(place.url)) throw runError(`the place of papercut #${n} is not an http or https URL`, 'replay opens only web pages');
+      if (flags.base && !web(flags.base)) throw usageError(`--base must be an http or https URL, not "${flags.base}"`, `usage: ${COMMANDS.replay.usage}`);
+      let url = place.url.split('#')[0] + (place.hash || '');
+      if (flags.base) {
+        const u = new URL(url);
+        url = flags.base.replace(/\/$/, '') + u.pathname + u.search + u.hash;
+      }
+      const data = { url, viewport: place.viewport || { width: 1280, height: 800 }, scrollX: place.scrollX, scrollY: place.scrollY,
+        selector: place.selector || '', storage: place.storage || {}, out: flags.out || join(cwd, `papercut-${n}.replay.png`) };
+      if (await hasUv(env)) {
+        const png = await runReplay(data, env);
+        print({ replay: tilde(png, env) });
+        return 0;
+      }
+      print({
+        replay: { url, viewport: `${data.viewport.width}x${data.viewport.height}`, scroll: `${data.scrollX},${data.scrollY}`,
+          selector: data.selector || 'none', storage: Object.keys(data.storage).join(',') || 'none' },
+        help: ['Install uv for a replay picture (https://docs.astral.sh/uv/)', 'Or open the url in your browser with this viewport, set the storage keys, scroll, and look at the selector'],
+      });
       return 0;
     }
 

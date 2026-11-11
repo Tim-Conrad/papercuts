@@ -1,0 +1,43 @@
+# The relay in a home lab behind Traefik and Authelia (the stack of papercuts.lab.t7d.dev).
+# For your own lab, change the host names, the origins, the repos and the uid.
+#
+# Credential: the gh login of the host user, mounted read-only. The container runs as that user,
+# because gh keeps hosts.yml with mode 600. The token has the scopes of your gh login, which is wider
+# than "Issues: read and write". For a narrow token, set PAPERCUTS_CREDENTIAL=file and
+# PAPERCUTS_TOKEN_FILE to a fine-grained token (see README).
+services:
+  papercuts:
+    build: .
+    restart: unless-stopped
+    user: "${PAPERCUTS_UID:-1001}:${PAPERCUTS_GID:-1001}"
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 256m   # one report with an 8 MB picture needs about 55 MB while it is parsed
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+    networks: [proxy]
+    environment:
+      PAPERCUTS_ORIGINS: "https://*.lab.t7d.dev"
+      PAPERCUTS_REPOS: "Tim-Conrad/*"
+      PAPERCUTS_TARGET: "per-project"
+      PAPERCUTS_CREDENTIAL: gh
+      PAPERCUTS_GH_MOUNT: /gh
+      PAPERCUTS_PUBLIC_URL: "https://papercuts.lab.t7d.dev"
+    volumes:
+      - ${HOME}/.config/gh:/gh:ro
+      - shots:/data/shots
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.papercuts.rule=Host(`papercuts.lab.t7d.dev`)
+      - traefik.http.routers.papercuts.entrypoints=websecure
+      - traefik.http.routers.papercuts.tls=true
+      - traefik.http.routers.papercuts.middlewares=authelia@file,security-headers@file
+      - traefik.http.services.papercuts.loadbalancer.server.port=8000
+      - homepage.group=Tools
+      - homepage.name=Papercuts
+      - homepage.href=https://papercuts.lab.t7d.dev/status
+      - homepage.description=Feedback from people and agents, as GitHub issues
+volumes:
+  shots:
+networks:
+  proxy:
+    external: true
