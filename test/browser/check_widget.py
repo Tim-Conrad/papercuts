@@ -350,6 +350,92 @@ def v022_checks(browser, ctl, page_url, width):
     ctx.close()
 
 
+V03_CONFIG = json.dumps({
+    "kinds": ["ux", "bug", "idea"],
+    "fields": [{"id": "expected", "label": "What did you expect?", "required": True}, {"id": "device", "label": "Device", "options": ["phone", "desktop"]}],
+    "presets": [{"kind": "ux", "text": "Too small to tap"}, {"kind": "bug", "text": "This does not load"}],
+    "labels": ["area:web"],
+})
+
+FAKE_SPEECH = """
+class FakeSpeech { constructor() { this.lang = ''; }
+  start() { window.__speechLang = this.lang; setTimeout(() => {
+    const r = (t, f) => { const a = [{ transcript: t }]; a.isFinal = f; return a; };
+    this.onresult && this.onresult({ resultIndex: 0, results: [r('the menu', false)] });
+    this.onresult && this.onresult({ resultIndex: 0, results: [r('the menu covers the button', true)] });
+    this.onend && this.onend(); }, 60); }
+  stop() { this.onend && this.onend(); } }
+window.SpeechRecognition = FakeSpeech; window.webkitSpeechRecognition = FakeSpeech;
+"""
+
+
+def v03_checks(browser, ctl, page_url, width):
+    """Ticket config in the widget, open(draft), shortcuts, deep link, two-finger press, voice first on phones."""
+    control(ctl, "/mode?m=ok")
+    control(ctl, "/config?json=" + urllib.parse.quote(V03_CONFIG))
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url + "?shortcut=ctrl%2Bk")
+    ready(page)
+    host = page.locator("papercuts-widget")
+    page.keyboard.press("Control+k")
+    check(f"{width}: custom shortcut opens the panel", host.locator(".panel").is_visible())
+    check(f"{width}: no voice-first button with a mouse", host.locator("button.speak").is_hidden())
+    kinds = [b.get_attribute("data-kind") for b in host.locator(".kinds button").all()]
+    check(f"{width}: kinds follow the config", kinds == ["ux", "bug", "idea"], str(kinds))
+    check(f"{width}: presets show as chips", host.locator(".presets button").count() == 2)
+    host.locator(".presets button", has_text="Too small to tap").click()
+    check(f"{width}: a preset fills text and kind", host.locator("textarea").input_value() == "Too small to tap" and host.locator(".kinds [data-kind=ux]").get_attribute("aria-checked") == "true")
+    check(f"{width}: fields show with their labels", host.locator(".fields [data-field=expected] input").count() == 1 and host.locator(".fields [data-field=device] [data-option=phone]").count() == 1)
+    before = len(issues(ctl))
+    host.locator("button.send").click()
+    page.wait_for_timeout(300)
+    check(f"{width}: a required field blocks the send", len(issues(ctl)) == before and "required" in host.locator(".status").inner_text().lower(), host.locator(".status").inner_text())
+    host.locator(".fields [data-field=expected] input").fill("A bigger button")
+    host.locator(".fields [data-field=device] [data-option=phone]").click()
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    issue = issues(ctl)[-1]
+    check(f"{width}: fields and config labels in the issue", "**What did you expect?** A bigger button" in issue["body"] and "**Device** phone" in issue["body"] and any(l["name"] == "area:web" for l in issue["labels"]), issue["body"][:300])
+    check(f"{width}: fields are cleared after sending", host.locator(".fields [data-field=expected] input").input_value() == "")
+    host.locator("button.close").click()
+    page.evaluate("papercuts.open({ kind: 'idea', text: 'A dark mode for the cart' })")
+    check(f"{width}: open(draft) fills the panel", host.locator(".panel").is_visible() and host.locator("textarea").input_value() == "A dark mode for the cart" and host.locator(".kinds [data-kind=idea]").get_attribute("aria-checked") == "true")
+    host.locator("button.close").click()
+
+    page.goto(page_url + "#papercut")
+    ready(page)
+    page.wait_for_timeout(300)
+    check(f"{width}: #papercut opens the panel", host.locator(".panel").is_visible())
+    check(f"{width}: #papercut is removed from the URL", page.evaluate("location.hash") == "")
+    check(f"{width}: no page errors in v0.3 checks", not errors, "; ".join(errors))
+    ctx.close()
+
+    phone = browser.new_context(viewport={"width": width, "height": 860}, has_touch=True, is_mobile=width < 800)
+    page = phone.new_page()
+    page.add_init_script(FAKE_SPEECH)
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    page.evaluate("""(() => {
+      const t = (id, x, y) => new Touch({ identifier: id, target: document.body, clientX: x, clientY: y });
+      const a = [t(1, 100, 300), t(2, 160, 300)];
+      document.body.dispatchEvent(new TouchEvent('touchstart', { touches: a, targetTouches: a, changedTouches: a, bubbles: true }));
+    })()""")
+    page.wait_for_timeout(800)
+    check(f"{width}: a long press with two fingers opens the panel", host.locator(".panel").is_visible())
+    page.evaluate("document.body.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }))")
+    check(f"{width}: voice first on a touch screen", host.locator("button.speak").is_visible())
+    host.locator("button.speak").click()
+    page.wait_for_timeout(400)
+    check(f"{width}: speech fills the text", host.locator("textarea").input_value() == "the menu covers the button", host.locator("textarea").input_value())
+    check(f"{width}: speech uses the page language", page.evaluate("window.__speechLang") == "en", str(page.evaluate("window.__speechLang")))
+    phone.close()
+    control(ctl, "/config?json=")
+
+
 def main():
     harness = subprocess.Popen(["node", str(ROOT / "test/browser/harness.js")], stdout=subprocess.PIPE, text=True)
     try:
@@ -432,6 +518,7 @@ def main():
                 list_checks(browser, ctl, page_url, width)
                 parity_checks(browser, ctl, page_url, width)
                 v022_checks(browser, ctl, page_url, width)
+                v03_checks(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})

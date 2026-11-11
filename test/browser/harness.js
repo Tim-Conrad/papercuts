@@ -11,7 +11,7 @@ import { loadConfig } from '../../src/config.js';
 const gh = await fakeGithub();
 // uploadBase: pictures go to the fake GitHub, never to uploads.github.com.
 const client = githubClient({ credential: { token: async () => gh.token, describe: () => 't' }, apiBase: gh.apiBase, uploadBase: gh.apiBase });
-const relay = createRelay(loadConfig({ PAPERCUTS_ORIGINS: 'http://127.0.0.1:*', PAPERCUTS_REPOS: 'Tim-Conrad/*', PAPERCUTS_LIST_CACHE_MS: '0' }), { client });
+const relay = createRelay(loadConfig({ PAPERCUTS_ORIGINS: 'http://127.0.0.1:*', PAPERCUTS_REPOS: 'Tim-Conrad/*', PAPERCUTS_LIST_CACHE_MS: '0', PAPERCUTS_CONFIG_CACHE_MS: '0' }), { client });
 const handler = relay.listeners('request')[0];
 let mode = 'ok';
 const front = http.createServer((req, res) => {
@@ -53,6 +53,7 @@ const pagePort = await listen(http.createServer((req, res) => {
   const q = u.searchParams;
   let html = q.get('lang') ? page.replace('data-repo=', `data-lang="${q.get('lang')}" data-repo=`) : page;
   // ?storage=all: every localStorage key except the ones in data-storage-skip.
+  for (const k of ['shortcut', 'gesture', 'voice']) if (q.get(k)) html = html.replace('data-repo=', `data-${k}="${q.get(k)}" data-repo=`);
   if (q.get('storage') === 'all') html = html.replace('data-storage="theme"', 'data-storage="*" data-storage-skip="room-code"');
   res.writeHead(200, { 'content-type': 'text/html' });
   res.end(html);
@@ -67,6 +68,11 @@ const controlPort = await listen(http.createServer((req, res) => {
     const n = gh.state.next++;
     list.push({ number: n, title: 'papercut: injected', body: url.searchParams.get('body'), state: 'open', labels: [{ name: 'papercut' }, { name: 'kind:bug' }],
       html_url: `https://github.com/Tim-Conrad/shop/issues/${n}`, comments: 0, commentList: [], created_at: new Date().toISOString() });
+  }
+  // config: the .github/papercuts.json of the test repo (empty value removes it).
+  if (url.pathname === '/config') {
+    const v = url.searchParams.get('json');
+    gh.state.files['Tim-Conrad/shop'] = v ? { '.github/papercuts.json': v } : {};
   }
   if (url.pathname === '/close') {
     const issue = (gh.state.issues['Tim-Conrad/shop'] || []).find((i) => i.number === Number(url.searchParams.get('n')));

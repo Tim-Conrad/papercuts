@@ -57,6 +57,7 @@ export function loadConfig(env = process.env, file = {}) {
     credential: source === 'file' ? { source: 'file', path: tokenFile } : { source: 'gh', ...(env.PAPERCUTS_GH_MOUNT ? { mount: env.PAPERCUTS_GH_MOUNT } : {}) },
     port: Number(env.PORT || 8000),
     listCacheMs: Number(env.PAPERCUTS_LIST_CACHE_MS ?? 30000),
+    configCacheMs: Number(env.PAPERCUTS_CONFIG_CACHE_MS ?? 300000),
     shotsDir: env.PAPERCUTS_SHOTS_DIR || file.shotsDir || 'shots',
     publicUrl: env.PAPERCUTS_PUBLIC_URL || file.publicUrl || '',
   };

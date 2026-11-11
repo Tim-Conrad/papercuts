@@ -12,6 +12,11 @@
   const SEEN_KEY = 'papercuts-seen-v1';
   const MAX_ERRORS = 20;
   const KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
+  // The ticket config of the repo (.github/papercuts.json), from the relay. Page attributes win over it.
+  let repoCfg = null;
+  const kindsList = () => (repoCfg && repoCfg.kinds && repoCfg.kinds.length ? repoCfg.kinds : KINDS);
+  const fieldList = () => (repoCfg && repoCfg.fields) || [];
+  const presetList = () => (repoCfg && repoCfg.presets) || [];
   // ?papercuts=download or data-mode="download": no relay, the report becomes a file for `papercuts import`.
   const DOWNLOAD = new URLSearchParams(location.search).get('papercuts') === 'download' || cfg.mode === 'download';
   const errors = [];
@@ -33,7 +38,7 @@
       cannotMark: 'This picture cannot be marked (it comes from another site).', noScreen: 'No screen picture: ',
       list: (n) => `${n} open`, back: 'New papercut', pickedSub: 'Picked element', pins: (n) => `${n} ${n === 1 ? 'pin' : 'pins'}`, picture: 'Marked picture', cancelPick: 'Cancel', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`, empty: 'No open papercuts.', age: (d) => (d < 1 ? 'today' : `${d} d ago`),
-      fixed: 'Fixed',
+      fixed: 'Fixed', required: 'required', fieldRequired: (l) => `Fill in “${l}”, it is required.`, speak: 'Tap to speak', listening: 'Listening… tap to stop', typeInstead: 'or type below',
     },
     de: {
       tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer', child: 'Kleiner',
@@ -48,12 +53,12 @@
       cannotMark: 'Dieses Bild lässt sich nicht markieren (es kommt von einer anderen Seite).', noScreen: 'Kein Bildschirmfoto: ',
       list: (n) => `${n} offen`, back: 'Neuer Papercut', pickedSub: 'Gewähltes Element', pins: (n) => `${n} ${n === 1 ? 'Nummer' : 'Nummern'}`, picture: 'Markiertes Bild', cancelPick: 'Abbrechen', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'Antwort' : 'Antworten'}`, empty: 'Keine offenen Papercuts.', age: (d) => (d < 1 ? 'heute' : `vor ${d} T.`),
-      fixed: 'Behoben',
+      fixed: 'Behoben', required: 'Pflicht', fieldRequired: (l) => `Fülle „${l}“ aus, das ist Pflicht.`, speak: 'Tippen und sprechen', listening: 'Ich höre zu… tippen zum Beenden', typeInstead: 'oder unten tippen',
     },
   };
   let t = T.en;
   function strings() {
-    const lang = cfg.lang || 'en';
+    const lang = cfg.lang || (repoCfg && repoCfg.lang) || 'en';
     let own = {};
     try { own = (window.papercutsStrings && window.papercutsStrings[lang]) || {}; } catch (_) { own = {}; }
     const kinds = Object.assign({}, T.en.kinds, (T[lang] || {}).kinds, own.kinds);
@@ -132,10 +137,11 @@
 
   // data-storage="*" takes every key except those in data-storage-skip (for example a room code).
   function storageSubset() {
-    let keys = (cfg.storage || '').split(',').map((k) => k.trim()).filter(Boolean);
+    const ctxCfg = (repoCfg && repoCfg.context) || {};
+    let keys = (cfg.storage || (ctxCfg.storage || []).join(',')).split(',').map((k) => k.trim()).filter(Boolean);
     if (!keys.length) return undefined;
     if (keys.length === 1 && keys[0] === '*') {
-      const skip = new Set((cfg.storageSkip || '').split(',').map((k) => k.trim()).filter(Boolean));
+      const skip = new Set((cfg.storageSkip || (ctxCfg.skipStorage || []).join(',')).split(',').map((k) => k.trim()).filter(Boolean));
       keys = [];
       try { for (let i = 0; i < localStorage.length && keys.length < 50; i++) { const k = localStorage.key(i); if (!skip.has(k)) keys.push(k); } } catch (_) { /* storage blocked */ }
     }
@@ -268,6 +274,7 @@
         context: Object.assign(autoContext(el), input.context || {}),
         ...(input.shot ? { shot: input.shot } : {}),
         ...(input.pins ? { pins: input.pins } : {}),
+        ...(input.fields && typeof input.fields === 'object' ? { fields: input.fields } : {}),
       },
     });
   }
@@ -403,6 +410,35 @@
     .counter.near { color: var(--pc-warn); font-weight: 600; }
     .mic[aria-pressed="true"] { background: var(--pc-err); color: #fff; animation: pc-pulse 1.4s ease-in-out infinite; }
     .mic[aria-pressed="true"] * { color: #fff; }
+
+    /* quick phrases and fields */
+    .presets { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px;
+      -webkit-mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 calc(100% - 28px), transparent); }
+    .presets::-webkit-scrollbar { display: none; }
+    .presets button { flex: none; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--pc-surface); font-size: 13px; color: var(--pc-ink); white-space: nowrap; }
+    .presets button:hover { background: var(--pc-hover); }
+    .fields { display: grid; gap: 10px; }
+    .fields .fld { display: grid; gap: 6px; }
+    .fields .fld > span { font-size: 12.5px; font-weight: 600; color: var(--pc-muted); }
+    .fields .req { font-weight: 500; color: var(--pc-accent); margin-left: 4px; }
+    .fields input { height: 40px; border: 1px solid var(--pc-line); border-radius: 11px; padding: 0 12px; background: var(--pc-bg); font-size: 14px; color: var(--pc-ink); outline: 0; }
+    .fields input:focus { border-color: color-mix(in srgb, var(--pc-ink) 38%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--pc-ink) 7%, transparent); }
+    .fields .options { display: flex; flex-wrap: wrap; gap: 6px; }
+    .fields .options button { height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--pc-line); font-size: 13px; font-weight: 560; color: var(--pc-muted); }
+    .fields .options button[aria-checked="true"] { background: var(--pc-ink); border-color: var(--pc-ink); color: var(--pc-bg); }
+    .fields .invalid input, .fields .invalid .options { box-shadow: 0 0 0 2px color-mix(in srgb, var(--pc-err) 50%, transparent); border-radius: 11px; }
+
+    /* voice first on a phone: speech, quick phrases and text lead, the rest follows */
+    .body.voice > .speakwrap { order: -3; } .body.voice > .presets { order: -2; } .body.voice > .field { order: -1; }
+    .speakwrap { display: grid; justify-items: center; gap: 8px; padding: 6px 0 2px; }
+    button.speak { width: 76px; height: 76px; border-radius: 999px; background: var(--pc-accent); display: inline-flex; align-items: center; justify-content: center;
+      box-shadow: 0 12px 28px -10px color-mix(in srgb, var(--pc-accent) 80%, transparent); transition: transform .1s; }
+    button.speak .ico { width: 32px; height: 32px; }
+    button.speak, button.speak * { color: var(--pc-on-accent); }
+    button.speak:active { transform: scale(.96); }
+    button.speak[aria-pressed="true"] { animation: pc-ring 1.4s ease-out infinite; }
+    .speakwrap .hint2 { font-size: 13px; font-weight: 600; } .speakwrap .hint3 { font-size: 12px; color: var(--pc-muted); margin-top: -6px; }
+    @keyframes pc-ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pc-accent) 45%, transparent); } 100% { box-shadow: 0 0 0 22px transparent; } }
 
     /* picture */
     .attach { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -812,23 +848,33 @@
       const rec = new Speech();
       // data-speech-lang, else the language of the page, for example "de-DE".
       rec.lang = cfg.speechLang || document.documentElement.lang || 'en-US';
-      rec.interimResults = false;
+      rec.interimResults = true;
+      const base = els.text.value.trim();
       rec.continuous = true;
+      // Words show live while the person speaks. The final words replace the live ones.
+      let done = '';
       rec.onresult = (e) => {
+        let live = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) {
-            const said = e.results[i][0].transcript.trim();
-            els.text.value = `${els.text.value} ${said}`.trim().slice(0, 300);
-            textChanged();
-          }
+          const said = e.results[i][0].transcript.trim();
+          if (e.results[i].isFinal) done = `${done} ${said}`.trim();
+          else live = `${live} ${said}`.trim();
         }
+        els.text.value = [base, done, live].filter(Boolean).join(' ').slice(0, 300);
+        textChanged();
       };
-      rec.onend = () => { listening = null; els.mic.setAttribute('aria-pressed', 'false'); els.mic.setAttribute('aria-label', t.mic); els.mic.title = t.mic; };
+      rec.onend = () => {
+        listening = null;
+        els.mic.setAttribute('aria-pressed', 'false'); els.mic.setAttribute('aria-label', t.mic); els.mic.title = t.mic;
+        els.speak.setAttribute('aria-pressed', 'false'); els.speakLabel.textContent = t.speak;
+      };
       rec.onerror = (e) => setStatus('warn', `${t.mic}: ${e.error}`);
       listening = rec;
       els.mic.setAttribute('aria-pressed', 'true');
       els.mic.setAttribute('aria-label', t.micStop);
       els.mic.title = t.micStop;
+      els.speak.setAttribute('aria-pressed', 'true');
+      els.speakLabel.textContent = t.listening;
       rec.start();
     }
 
@@ -898,7 +944,7 @@
     }
 
     // ---- form helpers ----
-    let kind = KINDS[0];
+    let kind = kindsList()[0];
     function setKind(k) {
       kind = k;
       for (const b of els.kinds.children) b.setAttribute('aria-checked', String(b.dataset.kind === k));
@@ -917,12 +963,23 @@
       els.status.replaceChildren(...(content.length ? [icon(STATUS_ICON[kindOf] || 'alert'), h('div', {}, ...content)] : []));
     }
 
-    const clearForm = () => { els.text.value = ''; textChanged(); forgetMark(); };
+    const clearForm = () => { els.text.value = ''; textChanged(); forgetMark(); for (const f of Object.values(fieldEls)) f.clear(); };
 
     async function submit() {
       const text = els.text.value.trim();
       if (!text) { setStatus('warn', t.writeFirst); els.text.focus(); return; }
-      const input = { kind, text, from: 'human', ...(mark || {}) };
+      const fields = {};
+      for (const f of fieldList()) {
+        const v = fieldEls[f.id].get();
+        if (v) fields[f.id] = v;
+        else if (f.required) {
+          fieldEls[f.id].wrap.classList.add('invalid');
+          setStatus('warn', t.fieldRequired(f.label));
+          fieldEls[f.id].focus();
+          return;
+        }
+      }
+      const input = { kind, text, from: 'human', ...(mark || {}), ...(Object.keys(fields).length ? { fields } : {}) };
       if (DOWNLOAD) {
         downloadReport(input, picked);
         clearForm();
@@ -1005,13 +1062,14 @@
     els.pick = h('button', { type: 'button', class: 'pick pill', onclick: startPicking }, icon('pick'), t.pick);
 
     els.kinds = h('div', { class: 'kinds', role: 'radiogroup', 'aria-label': t.kind },
-      ...KINDS.map((k) => h('button', { type: 'button', role: 'radio', 'data-kind': k, 'aria-checked': 'false', onclick: () => setKind(k) }, t.kinds[k])));
+      ...kindsList().map((k) => h('button', { type: 'button', role: 'radio', 'data-kind': k, 'aria-checked': 'false', onclick: () => setKind(k) }, t.kinds[k] || k)));
     els.kinds.addEventListener('keydown', (e) => {
-      const i = KINDS.indexOf(kind);
+      const KS = kindsList();
+      const i = KS.indexOf(kind);
       const next = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
       if (!next) return;
       e.preventDefault();
-      setKind(KINDS[(i + next + KINDS.length) % KINDS.length]);
+      setKind(KS[(i + next + KS.length) % KS.length]);
       els.kinds.querySelector(`[data-kind="${kind}"]`).focus();
     });
 
@@ -1021,6 +1079,34 @@
     els.text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); });
     els.mic = iconBtn('mic iconbtn', 'mic', t.mic, toggleMic, { 'aria-pressed': 'false' });
     els.mic.hidden = !Speech;
+    // Voice first on a phone: a large button leads the sheet. data-voice="off" turns it off.
+    const VOICE_FIRST = !!Speech && cfg.voice !== 'off' && matchMedia('(pointer: coarse)').matches;
+    els.speak = h('button', { type: 'button', class: 'speak', 'aria-pressed': 'false', 'aria-label': t.speak, onclick: toggleMic }, icon('mic'));
+    els.speakLabel = h('div', { class: 'hint2' }, t.speak);
+    els.speakWrap = h('div', { class: 'speakwrap' }, els.speak, els.speakLabel, h('div', { class: 'hint3' }, t.typeInstead));
+    els.speakWrap.hidden = !VOICE_FIRST;
+    if (VOICE_FIRST) els.mic.hidden = true;
+
+    els.presets = h('div', { class: 'presets' }, ...presetList().map((p) => h('button', { type: 'button', onclick: () => { setKind(kindsList().includes(p.kind) ? p.kind : kind); els.text.value = p.text; textChanged(); if (!matchMedia('(pointer: coarse)').matches) els.text.focus(); } }, p.text)));
+    els.presets.hidden = !presetList().length;
+    const fieldEls = {};
+    els.fields = h('div', { class: 'fields' }, ...fieldList().map((f) => {
+      const title = h('span', {}, f.label, ...(f.required ? [h('span', { class: 'req' }, t.required)] : []));
+      let control;
+      if (f.options) {
+        control = h('div', { class: 'options', role: 'radiogroup', 'aria-label': f.label }, ...f.options.map((o) => h('button', { type: 'button', role: 'radio', 'aria-checked': 'false', 'data-option': o,
+          onclick: (e) => { for (const b of control.children) b.setAttribute('aria-checked', String(b === e.currentTarget && b.getAttribute('aria-checked') !== 'true')); wrap.classList.remove('invalid'); } }, o)));
+        fieldEls[f.id] = { get: () => (control.querySelector('[aria-checked="true"]') || {}).dataset?.option || '', clear: () => { for (const b of control.children) b.setAttribute('aria-checked', 'false'); }, focus: () => control.firstChild && control.firstChild.focus() };
+      } else {
+        control = h('input', { type: 'text', maxlength: '300', 'aria-label': f.label });
+        control.addEventListener('input', () => wrap.classList.remove('invalid'));
+        fieldEls[f.id] = { get: () => control.value.trim(), clear: () => { control.value = ''; }, focus: () => control.focus() };
+      }
+      const wrap = h(f.options ? 'div' : 'label', { class: 'fld', 'data-field': f.id }, title, control);
+      fieldEls[f.id].wrap = wrap;
+      return wrap;
+    }));
+    els.fields.hidden = !fieldList().length;
 
     els.markPic = h('button', { type: 'button', class: 'mark-pic pill', hidden: '', onclick: markPicture }, icon('image'), t.markPic);
     els.markScreen = h('button', { type: 'button', class: 'mark-screen pill', onclick: markScreen }, icon('screen'), t.markScreen);
@@ -1056,9 +1142,13 @@
     els.form = h('div', { class: 'body' },
       h('div', { class: 'where' }, icon('frame'), els.target, els.parent, els.child, els.whole, els.pick),
       els.kinds,
+      els.speakWrap,
+      els.presets,
       h('div', { class: 'field' }, els.text, h('div', { class: 'fieldbar' }, els.mic, els.counter)),
+      els.fields,
       h('div', { class: 'attach' }, els.markPic, els.markScreen),
       els.previewRow);
+    if (VOICE_FIRST) els.form.classList.add('voice');
     els.listView.className = 'body';
     els.foot = h('div', { class: 'foot' }, els.status,
       h('div', { class: 'sendrow' }, els.send, ...(DOWNLOAD ? [] : [h('span', { class: 'kbd', 'aria-hidden': 'true' }, mac ? '⌘ ↵' : 'Ctrl ↵')])));
@@ -1074,13 +1164,53 @@
     els.hint = h('div', { class: 'hint', hidden: '', role: 'status' }, h('span', {}, t.hint),
       h('button', { type: 'button', class: 'cancel-pick', onclick: () => { stopPicking(); setTarget(picked, true); } }, t.cancelPick));
     shadow.append(els.box, els.hint, els.tab, els.scrim, els.panel, els.sheet);
-    setKind(KINDS[0]);
+    setKind(kindsList()[0]);
     document.documentElement.append(host);
     setTarget(null);
     els.box.hidden = true;
-    addEventListener('keydown', (e) => {
-      if (e.altKey && e.shiftKey && e.code === 'KeyP') { e.preventDefault(); toggle(); }
-    });
+    // data-shortcut="alt+shift+p" (default) or "off". Matched on the physical key, so it works on every keyboard layout.
+    const combo = (cfg.shortcut || 'alt+shift+p').toLowerCase();
+    if (combo !== 'off') {
+      const parts = combo.split(/[+\s]+/).filter(Boolean);
+      const key = parts.pop();
+      const want = { alt: parts.includes('alt'), shift: parts.includes('shift'), ctrl: parts.includes('ctrl'), meta: parts.includes('meta') || parts.includes('cmd') };
+      const code = /^[a-z]$/.test(key) ? `Key${key.toUpperCase()}` : /^[0-9]$/.test(key) ? `Digit${key}` : null;
+      addEventListener('keydown', (e) => {
+        if (e.altKey !== want.alt || e.shiftKey !== want.shift || e.ctrlKey !== want.ctrl || e.metaKey !== want.meta) return;
+        if (code ? e.code !== code : e.key.toLowerCase() !== key) return;
+        e.preventDefault();
+        toggle();
+      }, true);
+      const label = combo.split(/[+\s]+/).filter(Boolean).map((x) => (x.length === 1 ? x.toUpperCase() : x[0].toUpperCase() + x.slice(1))).join('+');
+      els.tab.title = `${t.tabTitle.replace(/ \(.*\)$/, '')} (${label})`;
+    }
+    // A long press with two fingers opens the panel on a touch screen. data-gesture="off" turns it off.
+    if (cfg.gesture !== 'off') {
+      let timer = null;
+      let startPts = null;
+      const cancel = () => { clearTimeout(timer); timer = null; };
+      addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 2) { cancel(); return; }
+        startPts = [...e.touches].map((p) => [p.clientX, p.clientY]);
+        cancel();
+        timer = setTimeout(() => { timer = null; if (els.panel.hidden && !isHidden()) open(); }, 600);
+      }, { passive: true, capture: true });
+      addEventListener('touchmove', (e) => {
+        if (!timer || !startPts) return;
+        const moved = [...e.touches].some((p, i) => startPts[i] && Math.hypot(p.clientX - startPts[i][0], p.clientY - startPts[i][1]) > 12);
+        if (moved) cancel();
+      }, { passive: true, capture: true });
+      addEventListener('touchend', cancel, { passive: true, capture: true });
+      addEventListener('touchcancel', cancel, { passive: true, capture: true });
+    }
+    // A link with #papercut or ?papercut=open opens the panel: for bookmarks, QR codes and home-screen links.
+    const params = new URLSearchParams(location.search);
+    if (location.hash === '#papercut' || params.get('papercut') === 'open') {
+      params.delete('papercut');
+      const q = params.toString();
+      history.replaceState(history.state, '', location.pathname + (q ? `?${q}` : '') + (location.hash === '#papercut' ? '' : location.hash));
+      setTimeout(open, 0);
+    }
     document.addEventListener('fullscreenchange', rehome);
     new MutationObserver(rehome).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
     // The page decides when the widget hides, for example in a print or kids view.
@@ -1097,7 +1227,20 @@
     }
 
     return {
-      open,
+      open(draft) {
+        if (draft && typeof draft === 'object') {
+          if (draft.kind && kindsList().includes(draft.kind)) setKind(draft.kind);
+          if (typeof draft.text === 'string') { els.text.value = draft.text.slice(0, 300); textChanged(); }
+          for (const [id, v] of Object.entries(draft.fields || {})) {
+            const f = fieldEls[id];
+            if (!f) continue;
+            const ctl = f.wrap.querySelector('input');
+            if (ctl) ctl.value = String(v);
+            else for (const b of f.wrap.querySelectorAll('[data-option]')) b.setAttribute('aria-checked', String(b.dataset.option === v));
+          }
+        }
+        open();
+      },
       async badge() {
         const n = (await queued()).length;
         els.count.textContent = n ? String(n) : '';
@@ -1116,14 +1259,27 @@
     },
     status,
     flush,
-    open: () => ui.open(),
+    // open({ kind, text, fields }) opens the panel with a draft, for an app's own button or menu entry.
+    open: (draft) => ui.open(draft),
   };
+
+  async function loadRepoConfig() {
+    if (!cfg.repo) return null;
+    try {
+      const res = await fetch(`${relay}/config?repo=${encodeURIComponent(cfg.repo)}`, { credentials: 'include', redirect: 'manual' });
+      const data = res.ok ? await res.json() : null;
+      if (data && data.warnings && data.warnings.length) console.warn('papercuts: .github/papercuts.json:', data.warnings.join('; '));
+      return data && data.ok ? data.config : null;
+    } catch (_) { return null; }
+  }
 
   async function start() {
     t = strings();
     if (DOWNLOAD) { ui = createUi(); return; }
     const s = await status();
     if (!s.reachable) return;
+    repoCfg = await loadRepoConfig();
+    t = strings();
     ui = createUi();
     ui.badge();
     flush();

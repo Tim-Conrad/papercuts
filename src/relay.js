@@ -34,7 +34,7 @@ export function createRelay(config, { client }) {
   const configCache = new Map();
   const repoConfig = (repo) => {
     const hit = configCache.get(repo);
-    if (hit && Date.now() - hit.at < 300000) return hit.value;
+    if (hit && Date.now() - hit.at < config.configCacheMs) return hit.value;
     const value = loadRepoConfig(client, repo);
     configCache.set(repo, { at: Date.now(), value });
     value.catch(() => configCache.delete(repo));
