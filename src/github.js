@@ -7,7 +7,7 @@ export class GithubError extends Error {
   }
 }
 
-export function githubClient({ credential, apiBase = 'https://api.github.com', uploadBase = 'https://uploads.github.com', fetchImpl = fetch }) {
+export function githubClient({ credential, apiBase = 'https://api.github.com', uploadBase = 'https://uploads.github.com', assetHosts = ['github.com'], fetchImpl = fetch }) {
   let cached;
   const repoIds = new Map();
   // A 401 means the token changed (gh auth refresh, a new PAT). Ask the source again, once.
@@ -107,6 +107,23 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', u
       const out = await call('POST', `/user-attachments/assets?${q2}`, undefined, false, { base: uploadBase, raw: buffer, type: 'image/png' });
       if (!out?.url) throw new GithubError(0, 'the upload gave no url');
       return { url: out.url };
+    },
+    // A picture of a private repo needs the token. The token goes only to the hosts in assetHosts.
+    // fetch drops the Authorization header when GitHub redirects to its storage host.
+    async download(url) {
+      let u;
+      try { u = new URL(url); } catch { throw new GithubError(0, `not a URL: ${url}`); }
+      if (!assetHosts.includes(u.host)) throw new GithubError(0, `the picture is on ${u.host}, papercuts sends the token only to ${assetHosts.join(', ')}`);
+      cached ??= credential.token();
+      const token = await cached;
+      let res;
+      try {
+        res = await fetchImpl(u, { headers: { authorization: `Bearer ${token}`, 'user-agent': 'papercuts', accept: 'image/png,image/*' }, signal: AbortSignal.timeout(30000) });
+      } catch (e) {
+        throw new GithubError(0, `no answer from GitHub (${e.name})`);
+      }
+      if (!res.ok) throw new GithubError(res.status, `picture download failed`);
+      return Buffer.from(await res.arrayBuffer());
     },
     getIssue: (repo, n) => call('GET', `/repos/${repo}/issues/${n}`),
     comments: (repo, n) => call('GET', `/repos/${repo}/issues/${n}/comments?per_page=100`),

@@ -171,3 +171,12 @@ test('place marker round trip, also with --> in the URL', () => {
   assert.equal((body.match(/-->/g) || []).length, (body.match(/<!--/g) || []).length);
   assert.deepEqual(parseMarkers(body).place, place);
 });
+
+test('place keeps viewport, selector and storage, redacted', () => {
+  const place = { url: 'https://x/', hash: '', scrollX: 1, scrollY: 2, viewport: { width: 412.4, height: 860 }, selector: '#a > b', storage: { theme: 'dark', auth: 'token=abc123456' } };
+  const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', context: { place } }, 'human').report;
+  assert.deepEqual(r.place.viewport, { width: 412, height: 860 });
+  assert.equal(r.place.selector, '#a > b');
+  assert.equal(r.place.storage.theme, 'dark');
+  assert.equal(r.place.storage.auth, '[redacted]');
+});

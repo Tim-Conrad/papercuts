@@ -22,6 +22,14 @@ export async function fakeGithub({ token = 'test-token-123' } = {}) {
     if (state.failOnce) { const code = state.failOnce; state.failOnce = null; return send(code, { message: 'Bad credentials' }); }
     if (req.headers.authorization !== `Bearer ${token}`) return send(401, { message: 'Bad credentials' });
     if (url.pathname === '/user') return send(200, { login: 'tester' });
+    // A picture behind the login, like github.com/user-attachments/assets/<id> of a private repo.
+    let a = url.pathname.match(/^\/assets\/(\d+)$/);
+    if (a && req.method === 'GET') {
+      const up = state.uploads[Number(a[1]) - 1];
+      if (!up) return send(404, { message: 'Not Found' });
+      res.writeHead(200, { 'content-type': 'image/png' });
+      return res.end(up.bytes);
+    }
     // Picture upload, as on uploads.github.com. Answers {url}, like the real endpoint (checked 2026-11-11).
     if (isUpload && req.method === 'POST') {
       if (state.uploadFail) return send(state.uploadFail, { message: 'Not Found' });

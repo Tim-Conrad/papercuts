@@ -24,7 +24,10 @@ Do not stop your task to report. Report in one command and continue. A repeat ad
 - `papercuts list [--from agent|human] [--kind <kind>] [--fields <a,b>] [--repo <owner/name>]`: List the open papercuts of the repo.
 - `papercuts view <id> [--full] [--repo <owner/name>]`: Show one papercut with its context.
 - `papercuts done <id> --fix "<what changed>" [--repo <owner/name>]`: Close a papercut with a note about the fix. A closed papercut is a no-op.
-- `papercuts setup --target per-project|central [--repo <owner/name>] [--hooks claude,codex|none]`: Choose where papercuts go, and show them at the start of each agent session.
+- `papercuts shot <id> [--out <file>] [--repo <owner/name>]`: Save the picture of a papercut as a PNG file.
+- `papercuts replay <id> [--out <file>] [--base <url>] [--repo <owner/name>]`: Show what the reporter saw: the page with the same size, place and storage, the element in a red frame.
+- `papercuts import <file.json>`: File a report that the widget saved as a file (?papercuts=download). A second import is a no-op.
+- `papercuts setup --target per-project|central [--repo <owner/name>] [--credential gh|file] [--token-file <path>] [--hooks claude,codex|none]`: Choose where papercuts go, the GitHub credential, and show papercuts at the start of each agent session.
 - `papercuts doctor [--repo <owner/name>]`: Check the credential and the access to the target repo.
 
 Run `papercuts` with no arguments to see the open papercuts of the current repo.

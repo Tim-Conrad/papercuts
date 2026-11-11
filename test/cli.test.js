@@ -12,7 +12,7 @@ import { parseRemote } from '../src/repo.js';
 let gh, client, home, cwd;
 beforeEach(async () => {
   gh = await fakeGithub();
-  client = githubClient({ credential: { token: async () => gh.token, describe: () => 'test' }, apiBase: gh.apiBase });
+  client = githubClient({ credential: { token: async () => gh.token, describe: () => 'test' }, apiBase: gh.apiBase, uploadBase: gh.apiBase, assetHosts: [new URL(gh.apiBase).host] });
   home = mkdtempSync(join(tmpdir(), 'pc-home-'));
   cwd = mkdtempSync(join(tmpdir(), 'pc-repo-'));
   execFileSync('git', ['init', '-q'], { cwd });
@@ -21,8 +21,12 @@ beforeEach(async () => {
 afterEach(() => gh.close());
 
 async function cli(...argv) {
+  return cliEnv({}, ...argv);
+}
+
+async function cliEnv(extra, ...argv) {
   let out = '';
-  const code = await run(argv, { env: { HOME: home }, cwd, client, stdout: { write: (s) => { out += s; } } });
+  const code = await run(argv, { env: { HOME: home, ...extra }, cwd, client, stdout: { write: (s) => { out += s; } } });
   return { code, out };
 }
 
@@ -175,14 +179,17 @@ test('setup is idempotent', async () => {
   assert.ok(cmds.includes('gh-axi'));
   const codex = JSON.parse(readFileSync(join(home, '.codex', 'hooks.json'), 'utf8'));
   assert.equal(codex.hooks.SessionStart.length, 1);
-  assert.deepEqual(JSON.parse(readFileSync(join(home, '.config', 'papercuts', 'config.json'), 'utf8')), { target: 'per-project' });
+  assert.deepEqual(JSON.parse(readFileSync(join(home, '.config', 'papercuts', 'config.json'), 'utf8')), { target: 'per-project', credential: 'gh' });
 });
 
 test('setup prints scope', async () => {
-  const c = await cli('setup', '--target', 'central', '--repo', 'Tim-Conrad/inbox', '--hooks', 'none');
+  const g = await cli('setup', '--target', 'central', '--repo', 'Tim-Conrad/inbox', '--hooks', 'none');
+  assert.equal(g.code, 0, g.out);
+  assert.match(g.out, /all scopes of your gh login/);
+  const c = await cli('setup', '--target', 'central', '--repo', 'Tim-Conrad/inbox', '--hooks', 'none', '--credential', 'file', '--token-file', '/t');
   assert.equal(c.code, 0, c.out);
   assert.match(c.out, /Issues: read and write/);
-  assert.match(c.out, /Tim-Conrad\/inbox/);
+  assert.match(c.out, /only Tim-Conrad\/inbox/);
   const p = await cli('setup', '--target', 'central', '--hooks', 'none');
   assert.equal(p.code, 2);
   assert.match(p.out, /^error: --repo is required for --target central/m);
@@ -261,4 +268,92 @@ test('hook command uses papercuts from PATH first, then the stored path', async 
   assert.equal(again.code, 0);
   const s2 = JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'));
   assert.equal(s2.hooks.SessionStart.length, 1);
+});
+
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+const issueWith = (body) => {
+  const list = (gh.state.issues['Tim-Conrad/shop'] ??= []);
+  const n = gh.state.next++;
+  list.push({ number: n, title: 'papercut: x', body, state: 'open', labels: [{ name: 'papercut' }], html_url: `https://github.com/Tim-Conrad/shop/issues/${n}`, comments: 0, commentList: [] });
+  return n;
+};
+
+test('setup writes the credential choice', async () => {
+  assert.equal((await cli('setup', '--target', 'per-project', '--hooks', 'none')).code, 0);
+  const file = join(home, '.config', 'papercuts', 'config.json');
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).credential, 'gh');
+  const r = await cli('setup', '--target', 'per-project', '--hooks', 'none', '--credential', 'file', '--token-file', '/x/token');
+  assert.equal(r.code, 0);
+  const c = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(c.credential, 'file');
+  assert.equal(c.tokenFile, '/x/token');
+  assert.equal((await cli('setup', '--target', 'per-project', '--credential', 'file')).code, 2);
+  assert.equal((await cli('setup', '--target', 'per-project', '--credential', 'app')).code, 2);
+});
+
+test('shot downloads the picture of a papercut', async () => {
+  gh.state.uploads.push({ bytes: PNG });
+  const n = issueWith(`x\n\n![papercut](${gh.apiBase}/assets/1)\n`);
+  const out = join(home, 'p.png');
+  const r = await cli('shot', String(n), '--out', out);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^shot: /m);
+  assert.deepEqual(readFileSync(out), PNG);
+});
+
+test('shot never sends the token to a host outside the allow list', async () => {
+  const n = issueWith('x\n\n![papercut](https://evil.example/a.png)\n');
+  const r = await cli('shot', String(n));
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^error: /m);
+  assert.ok(!gh.state.requests.some((q) => q.path === '/a.png'));
+});
+
+test('shot without picture exits 1 with help', async () => {
+  const n = issueWith('no picture here');
+  const r = await cli('shot', String(n));
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^error: papercut #\d+ has no picture/m);
+  assert.match(r.out, /^help: /m);
+});
+
+test('import files a saved report once', async () => {
+  const file = join(home, 'r.json');
+  writeFileSync(file, JSON.stringify({ from: 'human', report: { id: 'saved-1', kind: 'bug', text: 'saved while offline', repo: 'Tim-Conrad/shop' } }));
+  const a = await cli('import', file);
+  assert.equal(a.code, 0, a.out);
+  assert.match(a.out, /^papercut: #\d+ created$/m);
+  const b = await cli('import', file);
+  assert.equal(b.code, 0);
+  assert.equal(gh.state.issues['Tim-Conrad/shop'].length, 1);
+  writeFileSync(file, 'not json');
+  assert.equal((await cli('import', file)).code, 1);
+});
+
+const placeBody = () => {
+  const place = { url: 'https://shop.lab.t7d.dev/cart?x=1', hash: '#cart', scrollX: 0, scrollY: 300, viewport: { width: 412, height: 860 }, selector: '#buy', storage: { theme: 'dark' } };
+  return `x\n\n<!-- papercut-place: ${encodeURIComponent(JSON.stringify(place))} -->\n`;
+};
+
+test('replay without uv prints the replay data', async () => {
+  const n = issueWith(placeBody());
+  const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n));
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /url: "?https:\/\/shop\.lab\.t7d\.dev\/cart\?x=1#cart/);
+  assert.match(r.out, /viewport: 412x860/);
+  assert.match(r.out, /selector: #buy/);
+  assert.match(r.out, /^help\[/m);
+});
+
+test('replay --base replaces the origin', async () => {
+  const n = issueWith(placeBody());
+  const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n), '--base', 'https://shop-dev.lab.t7d.dev');
+  assert.match(r.out, /url: "?https:\/\/shop-dev\.lab\.t7d\.dev\/cart\?x=1#cart/);
+});
+
+test('replay of a papercut without place exits 1', async () => {
+  const n = issueWith('no place');
+  const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n));
+  assert.equal(r.code, 1);
+  assert.match(r.out, /has no place/);
 });

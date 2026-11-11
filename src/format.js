@@ -62,7 +62,13 @@ function cleanContext(value, depth = 0) {
 function cleanPlace(p) {
   if (!p || typeof p !== 'object') return undefined;
   const num = (v) => (Number.isFinite(v) ? Math.round(v) : 0);
-  return { url: redact(String(p.url ?? '')).slice(0, 500), hash: redact(String(p.hash ?? '')).slice(0, 200), scrollX: num(p.scrollX), scrollY: num(p.scrollY) };
+  const place = { url: redact(String(p.url ?? '')).slice(0, 500), hash: redact(String(p.hash ?? '')).slice(0, 200), scrollX: num(p.scrollX), scrollY: num(p.scrollY) };
+  if (p.viewport && typeof p.viewport === 'object') place.viewport = { width: num(p.viewport.width), height: num(p.viewport.height) };
+  if (p.selector) place.selector = String(p.selector).slice(0, 300);
+  if (p.storage && typeof p.storage === 'object' && !Array.isArray(p.storage)) {
+    place.storage = Object.fromEntries(Object.entries(p.storage).slice(0, 20).map(([k, v]) => [String(k).slice(0, 80), redact(String(v ?? '')).slice(0, 500)]));
+  }
+  return place;
 }
 
 export function normalizeReport(input, from) {
