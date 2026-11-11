@@ -13,7 +13,7 @@ pen-and-paper has its own note tool (anmerkung) with features that Tim uses. v0.
 - Every lab app with a page shows the papercuts tab, on the live and the dev copy.
 - No published copy loads papercuts. A feature flag per app controls this. The public copies are t7d.dev and `tiny-train.beacon.host`.
 - The widget can do what anmerkung does today (see "Widget v0.2").
-- Setup offers two credentials: a fine-grained PAT, or a GitHub App. The lab uses the GitHub App.
+- Setup offers two credentials: the `gh` login or a fine-grained PAT. The lab uses the `gh` login.
 - Agents in each lab repo find papercuts without help: a SessionStart hook, an `AGENTS.md` block, and a `papercuts` command on the PATH.
 - The deferred minors from the v0.1 review are fixed.
 
@@ -33,7 +33,7 @@ pen-and-paper has its own note tool (anmerkung) with features that Tim uses. v0.
 ## Decisions by Tim (2026-11-11)
 
 - Target: per project. Each app gets the issues in its own repo.
-- Credential: setup offers both a PAT and a GitHub App. The lab uses the GitHub App.
+- Credential: setup offers both the `gh` login and a PAT. The lab uses the `gh` login, because it works at once ("GitHub App" meant the gh CLI).
 - pen-and-paper: port anmerkung into papercuts, then remove anmerkung and `papercut.py`.
 - Where: live and dev copies. A published copy turns papercuts off with a feature flag.
 
@@ -41,38 +41,35 @@ pen-and-paper has its own note tool (anmerkung) with features that Tim uses. v0.
 
 ### 1. Credential sources
 
-The relay and the CLI take one of three sources:
+The relay and the CLI take one of two sources. `setup` asks which one.
 
 | Source | Config | Notes |
 | --- | --- | --- |
-| `gh` | none | The `gh` login of the host. CLI default. |
-| `file` | `PAPERCUTS_TOKEN_FILE` | A fine-grained PAT. Issues: read and write. |
-| `app` | `PAPERCUTS_APP_ID`, `PAPERCUTS_APP_KEY_FILE` | A GitHub App. The relay signs a JWT (RS256, `node:crypto`), finds the installation of the target repo, and mints an installation token. It caches the token for 50 minutes per installation. |
+| `gh` | `GH_CONFIG_DIR` (optional) | The `gh` login. Default for the CLI and the lab relay. Works at once, and can upload pictures. |
+| `file` | `PAPERCUTS_TOKEN_FILE` | A fine-grained PAT with Issues: read and write. Narrower, but it cannot upload pictures. |
 
-App permissions: Issues read and write, Metadata read. Nothing else.
+The lab relay uses the `gh` login of `developer`:
 
-`papercuts setup --app` creates the app with the GitHub App manifest flow:
+- The image installs `gh` (Alpine package `github-cli`).
+- Compose mounts `~/.config/gh` read-only and sets `GH_CONFIG_DIR` to it. The relay runs `gh auth token` at call time, as the CLI does today. No new copy of the token lands on disk. After `gh auth refresh` on the host, the relay uses the new token.
+- A 401 from GitHub clears the cached token, and the next call asks `gh` again. This fixes the deferred minor "the relay needs a restart after a token change".
 
-1. The CLI starts a one-time local page with a form that posts the manifest to github.com.
-2. Tim clicks "Create GitHub App" once.
-3. GitHub redirects back with a code. The CLI exchanges it for the app ID and the private key.
-4. The CLI writes the key with mode 600 to the folder that Tim names. It never prints the key.
-5. The CLI prints the install link. Tim picks the repos.
+**Security: the scope of the `gh` token.** It has the classic scopes `repo`, `workflow` and `delete_repo`. If an attacker takes over the relay, the attacker can do everything that the token allows, not only file issues. These limits apply:
 
-A 401 from GitHub clears the cached token, and the next call fetches a new one. This fixes the deferred minor "the relay needs a restart after a token change".
+- The relay sits behind Authelia, accepts only the origins and repos in its allow lists, and calls only issue and upload endpoints.
+- It runs as a non-root user with a read-only root file system, no shell access from outside, and `mem_limit`.
+- The `file` source with a fine-grained PAT stays the narrow choice. The broker draft is the long-term fix.
 
 ### 2. Pictures
 
-A GitHub App token cannot upload a picture to an issue. The upload endpoint (`uploads.github.com/user-attachments/assets`) is undocumented and rejects installation tokens ([cli/cli#14309](https://github.com/cli/cli/issues/14309)). It works only with the `gh` login.
-
-Decision: pictures stay on the relay.
+The `gh` login can upload a picture to an issue. `gh issue create --attach` does it through `POST https://uploads.github.com/user-attachments/assets?content_type=&name=&repository_id=` (verified on 2026-11-11 with `GH_DEBUG=api`). The endpoint is not documented. Installation tokens get a 404 there ([cli/cli#14309](https://github.com/cli/cli/issues/14309)).
 
 - `POST /report` takes an optional PNG (data URL, max 8 MB, checked magic bytes).
-- The relay stores it in a volume as `shots/<report id>.png`.
-- The issue body links to `https://<relay>/shots/<id>.png`. Tim opens it through the login. GitHub does not show it inline.
-- Agents on the host read it with `papercuts shot <issue> [--out file]`. The CLI fetches it from the relay. Section 6 covers how the CLI gets past the login.
+- The relay uploads it with the token, and the issue shows it inline as `![papercut](<asset url>)`.
+- If the upload fails, or the source is `file`, the relay keeps the PNG in a volume as `shots/<report id>.png`, and the issue links to `https://<relay>/shots/<id>.png`. The report still goes out.
+- Agents read a picture with `papercuts shot <issue> [--out file]`. The CLI downloads the asset with the token, or reads it from the relay.
 
-This also keeps photos from private pages (pen-and-paper reference photos) off GitHub.
+Note: the pictures of private pages, for example the pen-and-paper reference photos, then sit on GitHub as attachments of a private repo. anmerkung already does this today.
 
 ### 3. Widget v0.2
 
@@ -119,8 +116,8 @@ The site t7d.dev keeps no tag. Its review copy can add one later, but that is no
 
 ### 6. Lab relay
 
-- `~/lab/apps/papercuts/` holds a compose file from `docker-compose.example.yml`: `papercuts.lab.t7d.dev`, `authelia@file`, `security-headers@file`, a Homepage entry, `mem_limit: 128m`, and a volume for `shots/`.
-- Secrets: `~/lab/apps/papercuts/secrets/app-id` and `app-key.pem`, mode 600, gitignored, never read by an agent.
+- `~/lab/apps/papercuts/` holds a compose file from `docker-compose.example.yml`: `papercuts.lab.t7d.dev`, `authelia@file`, `security-headers@file`, a Homepage entry, `mem_limit: 128m`, and a volume for `shots/` (the fallback of section 2).
+- Credential: `~/.config/gh` mounted read-only (section 1). No secret file in the app folder.
 - `PAPERCUTS_ORIGINS=https://*.lab.t7d.dev`, `PAPERCUTS_REPOS=Tim-Conrad/*`.
 - `GET /shots/*` and `GET /list` are read paths. Browser requests come through Traefik and Authelia. The relay itself has no login, so a direct request on the `proxy` network gets an answer.
 - Verified on 2026-11-11: the host reaches a container on the `proxy` network by its IP, with the source address `172.30.0.1`. `papercuts shot` uses this path. The relay needs a stable address for it: a fixed `ipv4_address`, or a lookup with `docker inspect`. The builder chooses.
@@ -138,7 +135,7 @@ The site t7d.dev keeps no tag. Its review copy can add one later, but that is no
 ### 8. Rollout order
 
 1. papercuts v0.2 (sections 1 to 4, 7) with tests. Release `v0.2.0`.
-2. The lab relay (section 6) with the GitHub App.
+2. The lab relay (section 6) with the `gh` login.
 3. pen-and-paper: the widget replaces anmerkung, and `papercuts` replaces `papercut.py`. Tim checks it on the review site before the old code goes.
 4. The other apps, one PR each: fitness, organizer, scanner, klima, apk-market, humidity-checker, scrcpy-lite, kleinbahn, sealed admin.
 5. After each app, the papercuts that came up during the work are fixed in papercuts before the next app.
@@ -159,7 +156,7 @@ Each app: a branch in a separate clone, a PR with Before and After screenshots, 
 - **Sealed admin.** Its issues go to `Tim-Conrad/sealed`.
 - **Dev copies.** `*.lab.t7d.dev` matches `<app>-dev.lab.t7d.dev`. Dev copies use the same relay and file into the real repo. The widget shows the host in the context, so that each issue shows the copy it came from.
 - **Replay hosts.** Replay opens the URL of the report. If that host needs a login, `--base <url>` points it at a dev copy or a local server of the same page.
-- **Steps that need Tim.** The manifest click (section 1). Tim approved the release and the rollout on 2026-11-11. Lab PRs merge and deploy as the lab memory says. If the harness blocks a merge, the PR waits for Tim.
+- **Steps that need Tim.** None for the credential. Tim approved the release and the rollout on 2026-11-11. Lab PRs merge and deploy as the lab memory says. If the harness blocks a merge, the PR waits for Tim.
 
 ## Left to the builder
 
@@ -169,5 +166,5 @@ Each app: a branch in a separate clone, a PR with Before and After screenshots, 
 
 ## Open risks
 
-- The manifest flow needs one browser click by Tim. Nothing can do that step for him.
+- The upload endpoint is not documented. If GitHub changes it, pictures fall back to the relay volume.
 - The proxy-network read path (section 6) must be verified on this host before `papercuts shot` depends on it.
