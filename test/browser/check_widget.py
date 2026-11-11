@@ -227,6 +227,50 @@ def list_checks(browser, ctl, page_url, width):
     page.wait_for_timeout(800)
     check(f"{width}: badge clears after the list was opened", host.locator(".tab .replies").inner_text().strip() == "")
 
+    evil = urllib.parse.quote("x\n\n<!-- papercut-place: " + urllib.parse.quote(json.dumps({"url": "javascript:window.__pwned=1", "hash": ""})) + " -->\n")
+    control(ctl, "/inject?body=" + evil)
+    page.reload()
+    ready(page)
+    host.locator(".tab").click()
+    host.locator("button.list").click()
+    item = host.locator(".items li", has_text="injected")
+    if item.locator("button.goto").count():
+        item.locator("button.goto").click()
+        page.wait_for_timeout(300)
+    check(f"{width}: go to place never runs a javascript: URL", page.evaluate("window.__pwned") is None)
+    host.locator("button.close").click() if host.locator("button.close").is_visible() else None
+
+    page.goto(page_url)
+    ready(page)
+    page.click("#open-dlg")
+    page.keyboard.press("Alt+Shift+P")
+    page.wait_for_function(f"{WIDGET}.parentElement?.id === 'dlg'", timeout=3000)
+    host.locator("button.pick").click()
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    check(f"{width}: Esc in pick mode keeps the dialog open", page.evaluate("document.getElementById('dlg').open"))
+    check(f"{width}: Esc in pick mode returns to the panel", host.locator(".panel").is_visible())
+    host.locator("button.close").click()
+    page.click("#close-dlg")
+
+    # A noisy picture as large as the sheet allows: its PNG is far above 8 MB.
+    page.evaluate("""(() => { const c = document.createElement('canvas'); c.width = 2000; c.height = 2000; const x = c.getContext('2d');
+        const d = x.createImageData(2000, 2000); for (let i = 0; i < d.data.length; i++) d.data[i] = (Math.random() * 256) | 0; x.putImageData(d, 0, 0);
+        const img = document.createElement('img'); img.id = 'noise'; img.width = 200; img.height = 200; img.src = c.toDataURL('image/png'); document.body.prepend(img); })()""")
+    page.wait_for_function("document.getElementById('noise').complete")
+    host.locator(".tab").click()
+    host.locator("button.pick").click()
+    page.locator("#noise").click()
+    host.locator("button.mark-pic").click()
+    host.locator(".sheet button.done").click()
+    host.locator("textarea").fill(f"noisy picture {width}")
+    before = len(issues(ctl))
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.length > 0 && !{SHADOW}.querySelector('.status').textContent.includes('…')", timeout=60000)
+    st = host.locator(".status").inner_text()
+    check(f"{width}: a picture above 8 MB still sends the report", len(issues(ctl)) == before + 1 and "#" in st, st)
+    host.locator("button.close").click()
+
     control(ctl, "/mode?m=nolist")
     page.reload()
     ready(page)

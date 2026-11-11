@@ -194,3 +194,27 @@ test('the widget redacts with the same patterns as the relay', async () => {
   assert.equal(relay.length, 8);
   assert.deepEqual(block('../widget/papercuts.js'), relay);
 });
+
+test('place accepts only http and https URLs', () => {
+  for (const url of ['javascript:alert(1)', 'JAVASCRIPT:alert(1)', 'data:text/html,x', 'file:///etc/passwd', 'not a url']) {
+    const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', context: { place: { url } } }, 'human').report;
+    assert.equal(r.place, undefined, url);
+  }
+  const ok = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', context: { place: { url: 'https://a.lab.t7d.dev/x' } } }, 'human').report;
+  assert.equal(ok.place.url, 'https://a.lab.t7d.dev/x');
+});
+
+test('a place with much non-ASCII text keeps the body under the limit', () => {
+  const storage = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, '😀'.repeat(250)]));
+  const place = { url: 'https://a.lab.t7d.dev/' + '漢'.repeat(400), hash: '#' + '字'.repeat(150), selector: '日本'.repeat(150), storage, scrollX: 0, scrollY: 0 };
+  const big = { text: 'x'.repeat(300), errors: Array.from({ length: 20 }, () => '漢'.repeat(500)) };
+  const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', context: { place, ...big } }, 'agent').report;
+  const { body } = buildIssue(r, { mode: 'per-project' });
+  assert.ok(body.length <= 60000, String(body.length));
+  const m = parseMarkers(body);
+  assert.equal(m.id, r.id);
+  assert.ok(m.fp);
+  assert.ok(m.place, 'the place marker survives, without the parts that do not fit');
+  assert.ok(m.place.url.startsWith('https://a.lab.t7d.dev/'));
+  assert.match(body, /```yaml\n[\s\S]*\n```/);
+});

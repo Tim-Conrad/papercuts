@@ -12,7 +12,7 @@ services:
     user: "${PAPERCUTS_UID:-1001}:${PAPERCUTS_GID:-1001}"
     read_only: true
     tmpfs: [/tmp]
-    mem_limit: 128m
+    mem_limit: 256m   # one report with an 8 MB picture needs about 55 MB while it is parsed
     logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
     networks: [proxy]
     environment:

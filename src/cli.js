@@ -436,6 +436,9 @@ export async function run(argv, ctx = {}) {
       const n = issueNumber(args[0], 'replay');
       const place = parseMarkers((await client.getIssue(where, n)).body).place;
       if (!place?.url) throw runError(`papercut #${n} has no place`, 'only reports from the widget v0.2 or later have a place');
+      const web = (u) => { try { return ['http:', 'https:'].includes(new URL(u).protocol); } catch { return false; } };
+      if (!web(place.url)) throw runError(`the place of papercut #${n} is not an http or https URL`, 'replay opens only web pages');
+      if (flags.base && !web(flags.base)) throw usageError(`--base must be an http or https URL, not "${flags.base}"`, `usage: ${COMMANDS.replay.usage}`);
       let url = place.url.split('#')[0] + (place.hash || '');
       if (flags.base) {
         const u = new URL(url);

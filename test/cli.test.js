@@ -357,3 +357,13 @@ test('replay of a papercut without place exits 1', async () => {
   assert.equal(r.code, 1);
   assert.match(r.out, /has no place/);
 });
+
+test('replay refuses a place that is not http or https', async () => {
+  const bad = `x\n\n<!-- papercut-place: ${encodeURIComponent(JSON.stringify({ url: 'javascript:alert(1)', hash: '' }))} -->\n`;
+  const n = issueWith(bad);
+  const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n));
+  assert.equal(r.code, 1);
+  assert.match(r.out, /not an http or https URL/);
+  const b = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(issueWith(placeBody())), '--base', 'file:///tmp');
+  assert.equal(b.code, 2);
+});

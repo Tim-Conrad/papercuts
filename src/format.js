@@ -63,6 +63,10 @@ function cleanContext(value, depth = 0) {
 // Where the reporter was: the page can scroll back there. Kept exact (only redacted) for the marker.
 function cleanPlace(p) {
   if (!p || typeof p !== 'object') return undefined;
+  // "Go to place" and replay open this URL. Only http and https: a javascript: URL would run in the app.
+  let proto;
+  try { proto = new URL(String(p.url)).protocol; } catch { return undefined; }
+  if (proto !== 'http:' && proto !== 'https:') return undefined;
   const num = (v) => (Number.isFinite(v) ? Math.round(v) : 0);
   const place = { url: redact(String(p.url ?? '')).slice(0, 500), hash: redact(String(p.hash ?? '')).slice(0, 200), scrollX: num(p.scrollX), scrollY: num(p.scrollY) };
   if (p.viewport && typeof p.viewport === 'object') place.viewport = { width: num(p.viewport.width), height: num(p.viewport.height) };
@@ -143,6 +147,23 @@ function yamlLines(obj, indent = '') {
   return lines;
 }
 
+// One non-ASCII character becomes up to 12 characters in the marker. Drop the large parts until it fits.
+const PLACE_MARKER_MAX = 8000;
+function placeMarkerFor(place) {
+  if (!place) return undefined;
+  const p = { ...place };
+  for (const drop of [null, 'storage', 'selector', 'hash']) {
+    if (drop) delete p[drop];
+    const m = `<!-- papercut-place: ${encodeURIComponent(JSON.stringify(p))} -->`;
+    if (m.length <= PLACE_MARKER_MAX) return m;
+  }
+  for (let n = p.url.length; n > 0; n = Math.floor(n / 2)) {
+    const m = `<!-- papercut-place: ${encodeURIComponent(JSON.stringify({ ...p, url: p.url.slice(0, n) }))} -->`;
+    if (m.length <= PLACE_MARKER_MAX) return m;
+  }
+  return undefined;
+}
+
 export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
   const title = `papercut: ${report.text.slice(0, LIMITS.title)}`;
   const extra = [];
@@ -155,8 +176,9 @@ export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
   const markers = [`<!-- papercut-id: ${report.id} -->`];
   if (report.from === 'agent') markers.push(`<!-- papercut-fp: ${fingerprint(report)} -->`);
   // encodeURIComponent turns < and > into %3C and %3E, so the value cannot close the comment.
-  if (report.place) markers.push(`<!-- papercut-place: ${encodeURIComponent(JSON.stringify(report.place))} -->`);
-  const room = LIMITS.body - lead.length - markers.join('\n').length - 40;
+  const placeMarker = placeMarkerFor(report.place);
+  if (placeMarker) markers.push(placeMarker);
+  const room = Math.max(0, LIMITS.body - lead.length - markers.join('\n').length - 40);
   meta = shorten(meta, room);
   const body = `${lead}\n\n\`\`\`yaml\n${meta}\n\`\`\`\n\n${markers.join('\n')}\n`;
   return { title, body, labels: labelsFor(report, target) };

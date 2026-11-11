@@ -383,7 +383,8 @@
       setTarget(el);
     };
     const swallow = (e) => { if (e.target !== host) { e.preventDefault(); e.stopPropagation(); } };
-    const onKey = (e) => { if (e.key === 'Escape') { stopPicking(); setTarget(picked); } };
+    // Inside a modal dialog, Esc is also a close request for the dialog. It must only end the picking.
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopPicking(); setTarget(picked); } };
     const PICK_EVENTS = [['pointermove', onMove], ['click', onPick], ['pointerdown', swallow], ['mousedown', swallow], ['keydown', onKey]];
 
     function startPicking() {
@@ -504,10 +505,25 @@
       els.sheet.hidden = true;
       els.panel.hidden = false;
     }
+    // The relay takes at most 8 MB of PNG. A photo can be larger even at 2000 px: scale down until it fits.
+    const MAX_SHOT_CHARS = Math.floor((8 * 1024 * 1024 * 4) / 3) - 1024;
+    function shotData(canvas) {
+      let c = canvas;
+      let data = c.toDataURL('image/png');
+      while (data.length > MAX_SHOT_CHARS && c.width > 64) {
+        const next = document.createElement('canvas');
+        next.width = Math.round(c.width * 0.7);
+        next.height = Math.round(c.height * 0.7);
+        next.getContext('2d').drawImage(c, 0, 0, next.width, next.height);
+        c = next;
+        data = c.toDataURL('image/png');
+      }
+      return data;
+    }
     function finishSheet() {
       redraw();
       const pins = sheet.marks.filter((m) => m.type === 'pin').map((m, i) => ({ nr: i + 1, text: m.text.trim() }));
-      mark = { shot: sheet.canvas.toDataURL('image/png'), pins };
+      mark = { shot: shotData(sheet.canvas), pins };
       els.preview.src = mark.shot;
       els.previewRow.hidden = false;
       closeSheet();
@@ -608,6 +624,8 @@
     function goTo(p) {
       let u;
       try { u = new URL(p.url); } catch (_) { return; }
+      // The place comes from a report. Never follow a javascript: or data: URL.
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
       if (u.origin !== location.origin || u.pathname !== location.pathname) { location.href = p.url; return; }
       if (p.hash && location.hash !== p.hash) location.hash = p.hash;
       close();
@@ -621,7 +639,7 @@
           h('div', {}, h('a', { href: i.url, target: '_blank', rel: 'noopener' }, `#${i.issue}`), ` ${i.title}`),
           h('div', { class: 'meta' }, `${t.kinds[i.kind] || i.kind} · ${t.age(days(i.created))} · ${t.replyCount(i.replyCount)}${i.plus ? ` · +${i.plus}` : ''}`),
           ...(last ? [h('div', { class: 'reply' }, last.text)] : []),
-          ...(i.place && i.place.url ? [h('div', { class: 'row' }, h('button', { type: 'button', class: 'goto', onclick: () => goTo(i.place) }, t.goto))] : []));
+          ...(i.place && /^https?:\/\//i.test(i.place.url || '') ? [h('div', { class: 'row' }, h('button', { type: 'button', class: 'goto', onclick: () => goTo(i.place) }, t.goto))] : []));
       }) : [h('li', {}, t.empty)]));
     }
     function showList(on) {

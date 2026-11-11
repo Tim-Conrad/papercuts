@@ -59,6 +59,13 @@ const controlPort = await listen(http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/mode') mode = url.searchParams.get('m');
   if (url.pathname === '/fail') gh.state.fail = Number(url.searchParams.get('code')) || null;
+  // inject: an issue written straight into the fake GitHub, as an attacker with GitHub access could.
+  if (url.pathname === '/inject') {
+    const list = (gh.state.issues['Tim-Conrad/shop'] ??= []);
+    const n = gh.state.next++;
+    list.push({ number: n, title: 'papercut: injected', body: url.searchParams.get('body'), state: 'open', labels: [{ name: 'papercut' }, { name: 'kind:bug' }],
+      html_url: `https://github.com/Tim-Conrad/shop/issues/${n}`, comments: 0, commentList: [], created_at: new Date().toISOString() });
+  }
   if (url.pathname === '/comment') {
     const issue = (gh.state.issues['Tim-Conrad/shop'] || []).find((i) => i.number === Number(url.searchParams.get('n')));
     if (issue) { issue.commentList.push(url.searchParams.get('text')); issue.comments++; }
