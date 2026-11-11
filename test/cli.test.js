@@ -189,7 +189,7 @@ test('setup prints scope', async () => {
   const c = await cli('setup', '--target', 'central', '--repo', 'Tim-Conrad/inbox', '--hooks', 'none', '--credential', 'file', '--token-file', '/t');
   assert.equal(c.code, 0, c.out);
   assert.match(c.out, /Issues: read and write/);
-  assert.match(c.out, /only Tim-Conrad\/inbox/);
+  assert.match(c.out, /Tim-Conrad\/inbox, and the app repos/);
   const p = await cli('setup', '--target', 'central', '--hooks', 'none');
   assert.equal(p.code, 2);
   assert.match(p.out, /^error: --repo is required for --target central/m);

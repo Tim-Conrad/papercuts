@@ -137,7 +137,14 @@ export function normalizeFields(input, config) {
 
 // The config of a repo, read from its default branch. A broken file gives the defaults and warnings.
 export async function loadRepoConfig(client, repo) {
-  const text = await client.getFile(repo, CONFIG_PATH);
+  let text;
+  try { text = await client.getFile(repo, CONFIG_PATH); } catch (e) {
+    // A token without Contents: read (for example the narrow token of the central target) must not lose reports.
+    if (e.status === 403 || e.status === 401) {
+      return { found: false, config: defaultConfig(), warnings: [`no read access to ${CONFIG_PATH} of ${repo}: give the token Contents: read`] };
+    }
+    throw e;
+  }
   if (text == null) return { found: false, ...checkConfig({}) };
   let raw;
   try { raw = JSON.parse(text); } catch (e) {

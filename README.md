@@ -19,6 +19,17 @@ Papercuts is for local sites: dev and review copies on your own machine or home 
 
 Papercuts has no runtime dependencies. It needs Node.js 22 or later.
 
+## Integrate papercuts into an app
+
+This checklist is for the agent or person who adds papercuts to an app. Do the steps in this order:
+
+1. In the repo of the app, run `papercuts init`. It detects the stack, writes `.github/papercuts.json` and the papercuts block in `AGENTS.md`, and prints the exact steps for your stack.
+2. Add the script tag on the server, only when `PAPERCUTS_URL` is set (see [Load papercuts only where a relay exists](#load-papercuts-only-where-a-relay-exists)).
+3. Add a test: without `PAPERCUTS_URL` the page has no `papercuts`, with it the page has exactly one tag.
+4. Set `PAPERCUTS_URL` only for the copies with a relay, for example the lab and dev copies.
+5. Edit `.github/papercuts.json`: the kinds, the fields, the quick phrases and the labels of this app (see [The ticket config](#the-ticket-config)).
+6. Push, then run `papercuts config --check`. It shows the config that the relay uses and exits 1 on a warning.
+
 ## Quick start: a site
 
 First, run a relay (see [Run the relay](#run-the-relay)). Then add one tag to the `<head>` of the page. Put it early, so that the widget sees console errors from the start:
@@ -42,6 +53,10 @@ Optional attributes on the script tag:
 | `data-storage` | A comma list of `localStorage` keys to include, or `*` for all keys (at most 50). By default the widget sends no `localStorage`, because it can hold tokens or private data. |
 | `data-storage-skip` | With `data-storage="*"`: a comma list of keys to leave out, for example a room code. |
 | `data-mode` | `download`: see [Without a relay](#without-a-relay). |
+| `data-accent` | The accent color of the widget, any CSS color. Default: a coral red. |
+| `data-shortcut` | The key combination that opens the panel. Default `alt+shift+p`. `off` turns it off. |
+| `data-gesture` | `off` turns off the two-finger long press on touch screens. |
+| `data-voice` | `off` turns off voice first on touch screens. |
 
 Hooks for the page:
 
@@ -57,10 +72,12 @@ In a modal `<dialog>` or in fullscreen, the widget moves into the dialog or the 
 Do not put the tag into a published copy of a site. A published copy has no relay, and the tag shows the relay URL to every visitor. Add the tag on the server, and only when an environment variable is set:
 
 ```python
-# FastAPI: add the tag only when PAPERCUTS_URL is set
+# FastAPI: build index.html yourself when PAPERCUTS_URL is set.
+# Do not use FileResponse for it: its 304 keeps a cached copy without the tag.
 html = INDEX.read_text()
 if url := os.environ.get("PAPERCUTS_URL"):
     html = html.replace("</head>", f'<script src="{url}/papercuts.js" data-repo="owner/name"></script></head>', 1)
+return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 ```
 
 ```nginx
@@ -71,9 +88,55 @@ sub_filter_once on;
 
 For nginx, use two config files and let the entrypoint choose one, so that no tag goes out when the variable is empty. For a static build (Vite), add the tag when the server delivers the page, not at build time, so that one build works with and without papercuts.
 
+### Shortcuts for people
+
+- **Keys.** `Alt+Shift+P` opens and closes the panel. Change it with `data-shortcut`, for example `data-shortcut="ctrl+k"`.
+- **A link.** A URL with `#papercut` (or `?papercut=open`) opens the panel when the page loads. Use it for a bookmark, a QR code or a home-screen icon. The widget removes it from the URL.
+- **Two fingers.** On a touch screen, hold two fingers on the page for 0.6 seconds.
+- **Quick phrases.** The `presets` of the ticket config show as chips. One tap fills the kind and the sentence.
+- **Your own button.** `papercuts.open({ kind: "idea", text: "..." })` opens the panel with a draft, for a menu entry of the app.
+
+### Voice input
+
+On a touch screen with speech input, a large "Tap to speak" button leads the panel. The words show while you speak, and you can edit them. On desktop, the microphone is a small button in the text field. Speech uses `data-speech-lang`, else the `lang` of the page. Without speech input in the browser, the panel leads with the text field.
+
 ### Without a relay
 
 With `?papercuts=download` in the URL, or `data-mode="download"`, the widget shows the tab without a relay. Send becomes "Download report" and saves the report as a JSON file. File it later with `papercuts import <file>`. For this mode, serve a copy of `widget/papercuts.js` from the site itself.
+
+## The ticket config
+
+`.github/papercuts.json` in the repo of the app defines what a papercut of this app contains. The relay reads it from the default branch (cached for 5 minutes) and applies it to reports from the widget, the JS API and the CLI. Every key is optional. Without the file, the defaults apply.
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/Tim-Conrad/papercuts/main/schema/papercuts.schema.json",
+  "kinds": ["bug", "ux", "copy", "idea"],
+  "fields": [
+    { "id": "expected", "label": "What did you expect?", "required": true },
+    { "id": "device", "label": "Device", "options": ["phone", "tablet", "desktop"] }
+  ],
+  "presets": [{ "kind": "ux", "text": "Too small to tap" }],
+  "labels": ["area:web"],
+  "labelsByKind": { "bug": ["bug"] },
+  "assignees": ["your-login"],
+  "context": { "storage": ["theme"], "skipStorage": ["room-code"] },
+  "lang": "en"
+}
+```
+
+| Key | Use |
+| --- | --- |
+| `kinds` | The kinds that the widget offers, in this order. Use the built-in kinds only, so that labels stay the same in all repos. |
+| `fields` | At most 8 extra fields. A field with `options` is a choice, else one line of text. A required field is required for people and agents. |
+| `presets` | At most 12 quick phrases for the widget. |
+| `labels`, `labelsByKind`, `assignees` | Added to each new issue. |
+| `context` | The `localStorage` keys to include, the same as `data-storage` and `data-storage-skip`. |
+| `lang` | The language of the widget when the page sets no `data-lang`. |
+
+A broken part never breaks the page or a report. The relay drops it, uses the default, and lists a warning. `papercuts config` shows the warnings. The schema in `schema/papercuts.schema.json` lets an editor check the file. Page attributes win over the file.
+
+Agents fill the fields with `papercuts add <kind> "<text>" --field expected="..."`, and pages with `papercuts.report({ ..., fields: { expected: "..." } })`. An unknown field or a missing required field gives an error with the list of valid fields.
 
 ## Quick start: an agent
 
@@ -86,6 +149,8 @@ npx github:Tim-Conrad/papercuts view 12
 npx github:Tim-Conrad/papercuts shot 12    # save the picture of #12 as a PNG
 npx github:Tim-Conrad/papercuts replay 12  # show the page as the reporter saw it
 npx github:Tim-Conrad/papercuts done 12 --fix "gh-axi prints the body since commit abc1234"
+npx github:Tim-Conrad/papercuts config     # the ticket config of this repo
+npx github:Tim-Conrad/papercuts init       # set up papercuts in the repo of an app
 ```
 
 The CLI uses the `gh` login of the host, or the token file of `papercuts setup`. It finds the repo from the git remote `origin`, or from `--repo owner/name`.
@@ -120,7 +185,7 @@ Run `papercuts setup` once per machine. It writes `~/.config/papercuts/config.js
 | Credential | Command | Scope | Pictures |
 | --- | --- | --- | --- |
 | `gh` login (default) | `papercuts setup --target per-project` | All scopes of your `gh` login | Upload into the issue |
-| Fine-grained token | `papercuts setup --target per-project --credential file --token-file <path>` | Only "Issues: read and write", only the repos you choose | GitHub refuses them. The relay keeps them and the issue links to them. |
+| Fine-grained token | `papercuts setup --target per-project --credential file --token-file <path>` | "Issues: read and write" and "Contents: read" (for the ticket config), only the repos you choose | GitHub refuses them. The relay keeps them and the issue links to them. |
 
 The `gh` login works at once. Its token usually has the scopes `repo` and `workflow`, which is much more than papercuts needs. If an attacker takes over the relay, the attacker can do everything that the token allows. Use a fine-grained token if that risk is too high for you.
 
@@ -143,6 +208,7 @@ The relay reads its settings from the environment:
 | `PAPERCUTS_PUBLIC_URL` | none | The public URL of the relay, for the links to pictures that GitHub refused. |
 | `PAPERCUTS_SHOTS_DIR` | `shots` | The folder for those pictures. |
 | `PAPERCUTS_LIST_CACHE_MS` | `30000` | How long the relay keeps the list of open papercuts per repo. |
+| `PAPERCUTS_CONFIG_CACHE_MS` | `300000` | How long the relay keeps the ticket config per repo. |
 
 On a laptop, for sites on `localhost`:
 
@@ -163,6 +229,7 @@ Routes:
 | `GET /papercuts.js` | The widget. |
 | `POST /report` | File one report (max 12 MB with a picture). |
 | `GET /list?repo=owner/name` | The open papercuts and the ones closed in the last 14 days, with replies, fix note and place. A browser must come from an allowed origin. |
+| `GET /config?repo=owner/name` | The checked ticket config of the repo, with warnings. A browser must come from an allowed origin. |
 | `GET /shots/<id>.png` | A picture that GitHub refused. |
 | `GET /status`, `GET /healthz` | Health. |
 

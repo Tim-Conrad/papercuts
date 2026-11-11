@@ -277,8 +277,8 @@ async function openRows(client, repo, label) {
 
 function scopeLines(target, centralRepo) {
   return target === 'central'
-    ? [`fine-grained token, repository access: only ${centralRepo}`, 'permission: Issues: read and write']
-    : ['fine-grained token, repository access: each repo in PAPERCUTS_REPOS', 'permission: Issues: read and write'];
+    ? [`fine-grained token, repository access: ${centralRepo}, and the app repos for their ticket config`, 'permissions: Issues: read and write (inbox), Contents: read (app repos, optional)']
+    : ['fine-grained token, repository access: each repo in PAPERCUTS_REPOS', 'permissions: Issues: read and write, Contents: read (for .github/papercuts.json)'];
 }
 
 // Write a temp file, then rename it, so that a crash never leaves half a settings file.

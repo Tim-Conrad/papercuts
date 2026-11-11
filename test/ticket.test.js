@@ -78,3 +78,14 @@ test('fields: a repo without fields accepts none', () => {
   assert.match(r.help, /no fields/);
   assert.equal(normalizeFields(undefined, checkConfig({}).config).ok, true);
 });
+
+test('a config without read access gives the defaults and a warning, not an error', async () => {
+  const { loadRepoConfig } = await import('../src/ticket.js');
+  const denied = { getFile: async () => { const e = new Error('Resource not accessible by personal access token'); e.status = 403; throw e; } };
+  const c = await loadRepoConfig(denied, 'a/b');
+  assert.equal(c.found, false);
+  assert.deepEqual(c.config.fields, []);
+  assert.match(c.warnings[0], /no read access/);
+  const down = { getFile: async () => { const e = new Error('no answer'); e.status = 0; throw e; } };
+  await assert.rejects(loadRepoConfig(down, 'a/b'));
+});
