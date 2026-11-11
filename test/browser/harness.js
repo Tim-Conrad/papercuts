@@ -11,11 +11,16 @@ import { loadConfig } from '../../src/config.js';
 const gh = await fakeGithub();
 // uploadBase: pictures go to the fake GitHub, never to uploads.github.com.
 const client = githubClient({ credential: { token: async () => gh.token, describe: () => 't' }, apiBase: gh.apiBase, uploadBase: gh.apiBase });
-const relay = createRelay(loadConfig({ PAPERCUTS_ORIGINS: 'http://127.0.0.1:*', PAPERCUTS_REPOS: 'Tim-Conrad/*' }), { client });
+const relay = createRelay(loadConfig({ PAPERCUTS_ORIGINS: 'http://127.0.0.1:*', PAPERCUTS_REPOS: 'Tim-Conrad/*', PAPERCUTS_LIST_CACHE_MS: '0' }), { client });
 const handler = relay.listeners('request')[0];
 let mode = 'ok';
 const front = http.createServer((req, res) => {
   if (mode === 'down') return req.socket.destroy();
+  // nolist: the relay refuses the list, as it does for an origin outside PAPERCUTS_ORIGINS.
+  if (mode === 'nolist' && req.url.startsWith('/list')) {
+    res.writeHead(403, { 'content-type': 'application/json', 'access-control-allow-origin': req.headers.origin || '*', 'access-control-allow-credentials': 'true' });
+    return res.end(JSON.stringify({ ok: false, error: 'origin not allowed' }));
+  }
   if (mode === 'redirect' && req.url.startsWith('/report')) {
     res.writeHead(302, { location: 'https://auth.example/login' });
     return res.end();
@@ -54,6 +59,10 @@ const controlPort = await listen(http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/mode') mode = url.searchParams.get('m');
   if (url.pathname === '/fail') gh.state.fail = Number(url.searchParams.get('code')) || null;
+  if (url.pathname === '/comment') {
+    const issue = (gh.state.issues['Tim-Conrad/shop'] || []).find((i) => i.number === Number(url.searchParams.get('n')));
+    if (issue) { issue.commentList.push(url.searchParams.get('text')); issue.comments++; }
+  }
   res.writeHead(200, { 'content-type': 'application/json' });
   res.end(JSON.stringify({ mode, issues: gh.state.issues['Tim-Conrad/shop'] || [], uploads: gh.state.uploads.map((x) => x.bytes.subarray(0, 8).toString('hex')) }));
 }));

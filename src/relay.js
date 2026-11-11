@@ -18,11 +18,11 @@ export function createRelay(config, { client }) {
   // Two tabs can flush the same queued report at once. The second waits for the first, so one id makes one issue.
   const inFlight = new Map();
   const shots = shotStore(config.shotsDir);
-  // Each open page asks for the list. 30 s keep a few tabs from using up the GitHub rate limit.
+  // Each open page asks for the list. The cache (30 s by default) keeps a few tabs from using up the GitHub rate limit.
   const listCache = new Map();
   const listFor = (repo) => {
     const hit = listCache.get(repo);
-    if (hit && Date.now() - hit.at < 30000) return hit.items;
+    if (hit && Date.now() - hit.at < config.listCacheMs) return hit.items;
     const central = config.target.mode === 'central';
     const items = openPapercuts(client, central ? config.target.centralRepo : repo, central ? `papercut,project:${repo}` : 'papercut');
     listCache.set(repo, { at: Date.now(), items });

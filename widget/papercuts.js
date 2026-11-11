@@ -9,6 +9,7 @@
   const cfg = script.dataset;
   const QUEUE_DB = 'papercuts-queue-v1';
   const POS_KEY = 'papercuts-pos-v1';
+  const SEEN_KEY = 'papercuts-seen-v1';
   const MAX_ERRORS = 20;
   const KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
   // ?papercuts=download or data-mode="download": no relay, the report becomes a file for `papercuts import`.
@@ -28,6 +29,8 @@
       markPic: 'Mark picture', markScreen: 'Mark screen', mic: 'Speak', micStop: 'Stop', pen: 'Pen', pin: 'Pin',
       undo: 'Undo', clear: 'Clear', cancel: 'Cancel', done: 'Done', pinText: 'What is at this pin?', removePic: 'Remove picture',
       cannotMark: 'This picture cannot be marked (it comes from another site).', noScreen: 'No screen picture: ',
+      list: (n) => `Open papercuts (${n})`, back: 'New papercut', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
+      replyCount: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`, empty: 'No open papercuts.', age: (d) => (d < 1 ? 'today' : `${d} d ago`),
     },
     de: {
       tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer',
@@ -40,6 +43,8 @@
       markPic: 'Bild markieren', markScreen: 'Bildschirm markieren', mic: 'Sprechen', micStop: 'Stopp', pen: 'Stift', pin: 'Nummer',
       undo: 'Zurück', clear: 'Leeren', cancel: 'Abbrechen', done: 'Fertig', pinText: 'Was ist an dieser Nummer?', removePic: 'Bild entfernen',
       cannotMark: 'Dieses Bild lässt sich nicht markieren (es kommt von einer anderen Seite).', noScreen: 'Kein Bildschirmfoto: ',
+      list: (n) => `Offene Papercuts (${n})`, back: 'Neuer Papercut', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
+      replyCount: (n) => `${n} ${n === 1 ? 'Antwort' : 'Antworten'}`, empty: 'Keine offenen Papercuts.', age: (d) => (d < 1 ? 'heute' : `vor ${d} T.`),
     },
   };
   const t = T[cfg.lang] || T.en;
@@ -207,7 +212,7 @@
     github: { error: 'GitHub did not take the report', help: 'the report waits in this browser and goes out later' },
   };
 
-  let ui = { badge() {}, notice() {}, open() {} };
+  let ui = { badge() {}, notice() {}, open() {}, reload() {} };
   let flushing = false;
   // All tabs of the site share one queue. The lock keeps two tabs from sending the same report at once.
   const flush = () => (navigator.locks ? navigator.locks.request('papercuts-flush', { ifAvailable: true }, (lock) => lock && flushNow()) : flushNow());
@@ -219,6 +224,7 @@
         const r = await send(payload);
         if (r.delivered || !r.transient) {
           await dequeue(payload.report.id);
+          if (r.delivered) ui.reload();
         } else {
           if (r.reason === 'login') ui.notice(t.login);
           break;
@@ -261,7 +267,7 @@
   async function report(input = {}, el) {
     const payload = buildPayload(input, el);
     const r = await send(payload);
-    if (r.delivered) return r.data;
+    if (r.delivered) { ui.reload(); return r.data; }
     if (!r.transient) return Object.assign({ ok: false, queued: false }, r.data);
     if (!(await enqueue(payload))) {
       return { ok: false, queued: false, error: `${REASON[r.reason].error}, and this browser cannot save the report`, help: 'copy the text and send it again later' };
@@ -290,6 +296,7 @@
       background: #fff; border: 1px solid #111; border-radius: 8px; padding: 12px; z-index: 2147483647; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
     [hidden] { display: none !important; }
     h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+    .row h2 { margin: 0 auto 0 0; align-self: center; }
     .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
     button { border: 1px solid #111; background: #fff; border-radius: 4px; padding: 6px 10px; cursor: pointer; }
     button.send, button.primary { background: #111; color: #fff; }
@@ -309,6 +316,12 @@
     .sheet .pins { width: min(600px, 100%); display: grid; gap: 4px; }
     .sheet .pins label { display: flex; gap: 6px; align-items: center; color: #fff; }
     .sheet .pins input { flex: 1; border: 1px solid #888; border-radius: 4px; padding: 4px 6px; background: #fff; color: #111; }
+    .items { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+    .items li { border: 1px solid #ccc; border-radius: 6px; padding: 8px; }
+    .items .meta { font-size: 12px; color: #666; }
+    .items .reply { font-size: 13px; border-left: 3px solid #888; padding-left: 6px; margin-top: 4px; white-space: pre-wrap; }
+    .items a { color: inherit; }
+    .tab .replies { color: #fc6; }
     img.preview { display: block; max-width: 100%; max-height: 120px; border: 1px solid #888; margin-top: 6px; }
     button.mic[aria-pressed="true"] { background: #d00; color: #fff; border-color: #d00; }
     .box { position: fixed; pointer-events: none; border: 2px solid #d00; background: rgba(221,0,0,.08); z-index: 2147483645; }
@@ -568,6 +581,56 @@
       rec.start();
     }
 
+    // ---- list of open papercuts ----
+    let items = [];
+    const seen = () => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {}; } catch (_) { return {}; } };
+    const unseen = () => { const s = seen(); return items.filter((i) => i.replyCount > (s[i.issue] || 0)).length; };
+    function markSeen() {
+      const s = seen();
+      for (const i of items) s[i.issue] = i.replyCount;
+      try { localStorage.setItem(SEEN_KEY, JSON.stringify(s)); } catch (_) { /* no badge memory */ }
+      els.replies.textContent = '';
+    }
+    async function loadList() {
+      if (!cfg.repo) return;
+      try {
+        const res = await fetch(`${relay}/list?repo=${encodeURIComponent(cfg.repo)}`, { credentials: 'include', redirect: 'manual' });
+        const data = res.ok ? await res.json() : null;
+        if (!data || !data.ok) { els.listBtn.hidden = true; return; }
+        items = data.items || [];
+      } catch (_) { els.listBtn.hidden = true; return; }
+      els.listBtn.hidden = false;
+      els.listBtn.textContent = t.list(items.length);
+      const n = unseen();
+      els.replies.textContent = n ? t.replies(n) : '';
+      if (!els.listView.hidden) renderList();
+    }
+    function goTo(p) {
+      let u;
+      try { u = new URL(p.url); } catch (_) { return; }
+      if (u.origin !== location.origin || u.pathname !== location.pathname) { location.href = p.url; return; }
+      if (p.hash && location.hash !== p.hash) location.hash = p.hash;
+      close();
+      setTimeout(() => scrollTo(p.scrollX || 0, p.scrollY || 0), 50);
+    }
+    function renderList() {
+      const days = (iso) => Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 86400000));
+      els.items.replaceChildren(...(items.length ? items.map((i) => {
+        const last = i.replies && i.replies[i.replies.length - 1];
+        return h('li', { 'data-issue': String(i.issue) },
+          h('div', {}, h('a', { href: i.url, target: '_blank', rel: 'noopener' }, `#${i.issue}`), ` ${i.title}`),
+          h('div', { class: 'meta' }, `${t.kinds[i.kind] || i.kind} · ${t.age(days(i.created))} · ${t.replyCount(i.replyCount)}${i.plus ? ` · +${i.plus}` : ''}`),
+          ...(last ? [h('div', { class: 'reply' }, last.text)] : []),
+          ...(i.place && i.place.url ? [h('div', { class: 'row' }, h('button', { type: 'button', class: 'goto', onclick: () => goTo(i.place) }, t.goto))] : []));
+      }) : [h('li', {}, t.empty)]));
+    }
+    function showList(on) {
+      els.listView.hidden = !on;
+      els.form.hidden = on;
+      els.listBtn.textContent = on ? t.back : t.list(items.length);
+      if (on) { renderList(); markSeen(); }
+    }
+
     const clearForm = () => { els.text.value = ''; els.counter.textContent = '0 / 300'; forgetMark(); };
 
     async function submit() {
@@ -637,7 +700,8 @@
       shadow.append(h('style', {}, CSS_TEXT));
     }
     els.count = h('span', { class: 'count' });
-    els.tab = h('button', { class: 'tab', type: 'button', title: t.tabTitle }, t.tab, els.count);
+    els.replies = h('span', { class: 'replies' });
+    els.tab = h('button', { class: 'tab', type: 'button', title: t.tabTitle }, t.tab, els.count, els.replies);
     makeDraggable(els.tab);
     els.target = h('div', { class: 'target' });
     els.parent = h('button', { type: 'button', class: 'parent', onclick: () => picked && setTarget(picked.parentElement) }, t.parent);
@@ -666,8 +730,10 @@
         h('button', { type: 'button', class: 'cancel', onclick: closeSheet }, t.cancel),
         h('button', { type: 'button', class: 'done primary', onclick: finishSheet }, t.done)),
       els.canvasSlot, els.pins);
-    els.panel = h('div', { class: 'panel', hidden: '' },
-      h('h2', {}, t.title),
+    els.listBtn = h('button', { type: 'button', class: 'list', hidden: '', onclick: () => showList(els.listView.hidden) }, t.list(0));
+    els.items = h('ul', { class: 'items' });
+    els.listView = h('div', { hidden: '' }, els.items);
+    els.form = h('div', {},
       els.target,
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'pick', onclick: startPicking }, t.pick),
@@ -677,8 +743,10 @@
       els.previewRow,
       els.kind, els.text,
       h('div', { class: 'row' }, els.mic, els.counter),
-      h('div', { class: 'row' }, els.send, h('button', { type: 'button', class: 'close', onclick: close }, t.close)),
-      els.status);
+      h('div', { class: 'row' }, els.send, h('button', { type: 'button', class: 'close', onclick: close }, t.close)));
+    els.panel = h('div', { class: 'panel', hidden: '' },
+      h('div', { class: 'row' }, h('h2', {}, t.title), els.listBtn),
+      els.form, els.listView, els.status);
     els.box = h('div', { class: 'box', hidden: '' });
     els.hint = h('div', { class: 'hint', hidden: '' }, t.hint);
     shadow.append(els.box, els.hint, els.tab, els.panel, els.sheet);
@@ -697,6 +765,10 @@
     };
     applyHidden();
     setInterval(applyHidden, 1000);
+    if (!DOWNLOAD) {
+      loadList();
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadList(); });
+    }
 
     return {
       open,
@@ -705,6 +777,7 @@
         els.count.textContent = n ? t.waiting(n) : '';
       },
       notice(text) { els.status.textContent = text; },
+      reload: () => loadList(),
     };
   }
 

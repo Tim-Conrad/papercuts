@@ -190,6 +190,54 @@ def sheet_checks(browser, ctl, page_url, width):
     touch.close()
 
 
+def list_checks(browser, ctl, page_url, width):
+    """The list of open papercuts in the panel: replies, badge, go to place."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url + "#far")
+    ready(page)
+    page.evaluate("window.scrollTo(0, 700)")
+    r = page.evaluate("papercuts.report({kind: 'ux', text: 'list check ' + innerWidth, from: 'human'})")
+    n = r.get("issue")
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    host.locator("button.list").click()
+    items = host.locator(".items li")
+    titles = items.all_inner_texts()
+    check(f"{width}: list shows the open papercuts", any(f"list check {width}" in x for x in titles), str(titles)[:200])
+    page.evaluate("history.replaceState(null, '', location.pathname); window.scrollTo(0, 0)")
+    host.locator(f".items li[data-issue='{n}'] button.goto").click()
+    page.wait_for_timeout(300)
+    check(f"{width}: go to place restores hash and scroll", page.evaluate("location.hash") == "#far" and page.evaluate("scrollY") > 300, page.evaluate("location.hash + ' ' + scrollY"))
+
+    control(ctl, f"/comment?n={n}&text=Fixed+in+abc1234")
+    page.reload()
+    ready(page)
+    page.wait_for_function(f"{SHADOW}.querySelector('.tab .replies')?.textContent.trim().length > 0", timeout=5000)
+    check(f"{width}: badge shows a new reply", True)
+    host.locator(".tab").click()
+    host.locator("button.list").click()
+    reply = host.locator(f".items li[data-issue='{n}'] .reply").inner_text()
+    check(f"{width}: list shows the reply text", "Fixed in abc1234" in reply, reply)
+    page.reload()
+    ready(page)
+    page.wait_for_timeout(800)
+    check(f"{width}: badge clears after the list was opened", host.locator(".tab .replies").inner_text().strip() == "")
+
+    control(ctl, "/mode?m=nolist")
+    page.reload()
+    ready(page)
+    page.wait_for_timeout(800)
+    host.locator(".tab").click()
+    check(f"{width}: no list button when the relay refuses the list", host.locator("button.list").is_hidden())
+    control(ctl, "/mode?m=ok")
+    check(f"{width}: no page errors in list checks", not errors, "; ".join(errors))
+    ctx.close()
+
+
 def main():
     harness = subprocess.Popen(["node", str(ROOT / "test/browser/harness.js")], stdout=subprocess.PIPE, text=True)
     try:
@@ -268,6 +316,7 @@ def main():
             for width in (412, 1440):
                 v2_base_checks(browser, ctl, page_url, width)
                 sheet_checks(browser, ctl, page_url, width)
+                list_checks(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})
