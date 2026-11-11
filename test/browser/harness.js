@@ -23,7 +23,13 @@ const front = http.createServer((req, res) => {
 const listen = (s) => new Promise((r) => s.listen(0, '127.0.0.1', () => r(s.address().port)));
 const relayPort = await listen(front);
 const page = readFileSync(new URL('./page.html', import.meta.url), 'utf8').replaceAll('RELAY', `http://127.0.0.1:${relayPort}`);
-const pagePort = await listen(http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); }));
+// ?lang=de adds data-lang to the script tag.
+const pagePort = await listen(http.createServer((req, res) => {
+  const q = new URL(req.url, 'http://x').searchParams;
+  const html = q.get('lang') ? page.replace('data-repo=', `data-lang="${q.get('lang')}" data-repo=`) : page;
+  res.writeHead(200, { 'content-type': 'text/html' });
+  res.end(html);
+}));
 const controlPort = await listen(http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/mode') mode = url.searchParams.get('m');

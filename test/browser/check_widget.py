@@ -4,7 +4,9 @@ Run: uv run --no-project --with playwright python3 test/browser/check_widget.py
 It starts test/browser/harness.js (fake GitHub, relay, test page) and drives Chromium at 412 and 1440 px.
 """
 import json
+import re
 import subprocess
+import urllib.parse
 import sys
 import urllib.request
 from pathlib import Path
@@ -25,6 +27,104 @@ def check(name, ok, detail=""):
 def control(base, path):
     with urllib.request.urlopen(base + path) as r:
         return json.loads(r.read())
+
+
+WIDGET = "document.querySelector('papercuts-widget')"
+SHADOW = WIDGET + "?.shadowRoot"
+
+
+def ready(page):
+    page.wait_for_function(f"window.papercuts && {SHADOW}?.querySelector('.tab')")
+
+
+def issues(ctl):
+    return control(ctl, "/mode?m=ok")["issues"]
+
+
+def v2_base_checks(browser, ctl, page_url, width):
+    """Widget v0.2 base: languages, hide hook, drag, dialogs, Ctrl+Enter, redacted queue, download, place."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860}, accept_downloads=True)
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+
+    page.goto(page_url + "?lang=de")
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    check(f"{width}: German labels", host.locator("button.send").inner_text() == "Senden", host.locator("button.send").inner_text())
+    check(f"{width}: idea kind offered", host.locator("select option[value=idea]").count() == 1)
+
+    page.goto(page_url)
+    ready(page)
+    page.evaluate("window.papercutsHidden = () => true")
+    page.wait_for_function(f"{SHADOW}.querySelector('.tab').hidden === true", timeout=3000)
+    check(f"{width}: hide hook hides the tab", True)
+    page.evaluate("window.papercutsHidden = () => false")
+    page.wait_for_function(f"{SHADOW}.querySelector('.tab').hidden === false", timeout=3000)
+
+    tab = host.locator(".tab")
+    box = tab.bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2 - 150, steps=8)
+    page.mouse.up()
+    moved = tab.bounding_box()["y"]
+    check(f"{width}: drag moves the tab", moved < box["y"] - 100, f"{box['y']} -> {moved}")
+    check(f"{width}: drag does not open the panel", host.locator(".panel").is_hidden())
+    page.reload()
+    ready(page)
+    check(f"{width}: tab position kept after reload", abs(host.locator(".tab").bounding_box()["y"] - moved) < 3)
+    page.evaluate("localStorage.removeItem('papercuts-pos-v1')")
+
+    page.click("#open-dlg")
+    page.keyboard.press("Alt+Shift+P")
+    page.wait_for_function(f"{WIDGET}.parentElement?.id === 'dlg'", timeout=3000)
+    host.locator("textarea").click()
+    host.locator("textarea").fill("Dialog report " + str(width))
+    check(f"{width}: panel inside modal dialog is usable", host.locator("textarea").input_value() == "Dialog report " + str(width))
+    check(f"{width}: dialog stays open", page.evaluate("document.getElementById('dlg').open"))
+    before = len(issues(ctl))
+    host.locator("textarea").press("Control+Enter")
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')")
+    check(f"{width}: Ctrl+Enter sends", len(issues(ctl)) == before + 1)
+    page.click("#close-dlg")
+    page.wait_for_function(f"{WIDGET}.parentElement === document.documentElement", timeout=3000)
+    check(f"{width}: widget moves back after the dialog closes", True)
+
+    page.evaluate("location.hash = 'far'; window.scrollTo(0, 600)")
+    page.wait_for_timeout(200)
+    r = page.evaluate("papercuts.report({kind: 'ux', text: 'place check ' + innerWidth, from: 'human'})")
+    body = issues(ctl)[-1]["body"]
+    marker = re.search(r"<!-- papercut-place: (\S+) -->", body)
+    place = json.loads(urllib.parse.unquote(marker.group(1))) if marker else {}
+    check(f"{width}: place has hash, scroll and viewport", place.get("hash") == "#far" and place.get("scrollY", 0) > 0 and place.get("viewport", {}).get("width") == width, str(place))
+
+    control(ctl, "/mode?m=redirect")
+    page.evaluate("papercuts.report({kind: 'bug', text: 'password=hunter2 in the log ' + innerWidth, from: 'human'})")
+    stored = page.evaluate("""new Promise((ok) => { const q = indexedDB.open('papercuts-queue-v1', 1);
+        q.onsuccess = () => { const g = q.result.transaction('reports').objectStore('reports').getAll(); g.onsuccess = () => ok(JSON.stringify(g.result)); }; })""")
+    check(f"{width}: queue stores redacted text", "hunter2" not in stored and "[redacted]" in stored, stored[:200])
+    control(ctl, "/mode?m=ok")
+    page.evaluate("papercuts.flush()")
+
+    page.goto(page_url + "?papercuts=download")
+    ready(page)
+    host.locator(".tab").click()
+    check(f"{width}: download mode button", host.locator("button.send").inner_text() == "Download report", host.locator("button.send").inner_text())
+    host.locator("textarea").fill("offline report " + str(width))
+    n_before = len(issues(ctl))
+    with page.expect_download() as dl:
+        host.locator("button.send").click()
+    saved = json.loads(Path(dl.value.path()).read_text())
+    ok = subprocess.run(["node", "--input-type=module", "-e",
+                         "import { normalizeReport } from './src/format.js'; const p = JSON.parse(process.argv[1]); process.exit(normalizeReport(p.report, p.from).ok ? 0 : 1);",
+                         json.dumps(saved)], cwd=ROOT).returncode == 0
+    check(f"{width}: downloaded file is a valid report", ok and saved.get("from") == "human", str(saved)[:200])
+    check(f"{width}: download mode sends nothing", len(issues(ctl)) == n_before)
+    check(f"{width}: no page errors in v0.2 checks", not errors, "; ".join(errors))
+    ctx.close()
 
 
 def main():
@@ -101,6 +201,9 @@ def main():
                 check(f"{width}: no horizontal scroll", not sideways)
                 page.screenshot(path=str(ROOT / f".superpowers/widget-{width}.png"))
                 ctx.close()
+
+            for width in (412, 1440):
+                v2_base_checks(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})

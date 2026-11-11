@@ -8,8 +8,56 @@
   const relay = new URL(script.src).origin;
   const cfg = script.dataset;
   const QUEUE_DB = 'papercuts-queue-v1';
+  const POS_KEY = 'papercuts-pos-v1';
   const MAX_ERRORS = 20;
+  const KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
+  // ?papercuts=download or data-mode="download": no relay, the report becomes a file for `papercuts import`.
+  const DOWNLOAD = new URLSearchParams(location.search).get('papercuts') === 'download' || cfg.mode === 'download';
   const errors = [];
+
+  // All words of the widget. The JS API answers in English for agents.
+  const T = {
+    en: {
+      tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Pick', parent: 'Parent',
+      whole: 'Whole view', kind: 'Kind', placeholder: 'One sentence: what is wrong?', send: 'Send', download: 'Download report',
+      close: 'Close', sending: 'Sending…', sent: 'Sent: ', writeFirst: 'Write one sentence first.',
+      saved: 'Saved in this browser. It goes out later.', savedLogin: 'Saved in this browser. Log in again, then it goes out.',
+      notSent: 'Not sent: ', hint: 'Tap the part you mean. Esc cancels.', waiting: (n) => ` · ${n} waiting`,
+      login: 'Log in again at your login page, then the report goes out.', downloaded: 'Saved as a file. Run `papercuts import <file>` later.',
+      kinds: { bug: 'bug', ux: 'ux', copy: 'copy', idea: 'idea', other: 'other' },
+    },
+    de: {
+      tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer',
+      whole: 'Ganze Ansicht', kind: 'Art', placeholder: 'Ein Satz: Was stimmt nicht?', send: 'Senden', download: 'Als Datei speichern',
+      close: 'Schließen', sending: 'Sende…', sent: 'Gesendet: ', writeFirst: 'Schreib zuerst einen Satz.',
+      saved: 'Im Browser gespeichert. Geht später raus.', savedLogin: 'Im Browser gespeichert. Melde dich neu an, dann geht es raus.',
+      notSent: 'Nicht gesendet: ', hint: 'Tippe auf die Stelle. Esc bricht ab.', waiting: (n) => ` · ${n} warten`,
+      login: 'Melde dich auf der Login-Seite neu an, dann geht der Bericht raus.', downloaded: 'Als Datei gespeichert. Später `papercuts import <datei>` ausführen.',
+      kinds: { bug: 'Fehler', ux: 'Bedienung', copy: 'Text', idea: 'Idee', other: 'Sonst' },
+    },
+  };
+  const t = T[cfg.lang] || T.en;
+
+  // A copy of the redaction in src/format.js (test/format.test.js checks that both lists match).
+  // The browser redacts before it stores a report, so a queued report holds no secret either.
+  // SECRET-START
+  const SECRET = new RegExp([
+    String.raw`(?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{8,}`,
+    String.raw`gh[opsur]_[A-Za-z0-9]{8,}`,
+    String.raw`github_pat_\S+`,
+    String.raw`xox[abprs]-[A-Za-z0-9-]{8,}`,
+    String.raw`(?:Bearer|Basic)\s+\S+`,
+    String.raw`AKIA[0-9A-Z]{16}`,
+    String.raw`(?<=:\/\/)[^\s/:@]+:[^\s/@]+(?=@)`,
+    String.raw`["']?(?:api[_-]?key|token|password|passwd|secret)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,}]+)`,
+  ].join('|'), 'gi');
+  // SECRET-END
+  const redactDeep = (v, depth = 0) => {
+    if (typeof v === 'string') return v.replace(SECRET, '[redacted]');
+    if (depth > 8 || !v || typeof v !== 'object') return v;
+    if (Array.isArray(v)) return v.map((x) => redactDeep(x, depth + 1));
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, k === 'shot' ? x : redactDeep(x, depth + 1)]));
+  };
 
   const remember = (text) => {
     errors.push(String(text).slice(0, 500));
@@ -70,6 +118,13 @@
     return out;
   }
 
+  function place(el) {
+    return {
+      url: location.href, hash: location.hash, scrollX: Math.round(scrollX), scrollY: Math.round(scrollY),
+      viewport: { width: innerWidth, height: innerHeight }, selector: el ? cssPath(el) : '', storage: storageSubset(),
+    };
+  }
+
   function autoContext(el) {
     let site;
     try { site = typeof window.papercutsContext === 'function' ? window.papercutsContext() : undefined; } catch (e) { site = { error: String(e) }; }
@@ -87,6 +142,7 @@
       element: elementContext(el),
       errors: errors.length ? errors.slice() : undefined,
       storage: storageSubset(),
+      place: place(el),
       site,
     };
   }
@@ -158,7 +214,7 @@
         if (r.delivered || !r.transient) {
           await dequeue(payload.report.id);
         } else {
-          if (r.reason === 'login') ui.notice('Log in again at your login page, then the report goes out.');
+          if (r.reason === 'login') ui.notice(t.login);
           break;
         }
       }
@@ -168,8 +224,8 @@
     }
   }
 
-  async function report(input = {}, el) {
-    const payload = {
+  function buildPayload(input, el) {
+    return redactDeep({
       from: input.from === 'human' ? 'human' : 'agent',
       report: {
         id: input.id || newId(),
@@ -178,8 +234,26 @@
         where: input.where,
         repo: input.repo || cfg.repo,
         context: Object.assign(autoContext(el), input.context || {}),
+        ...(input.shot ? { shot: input.shot } : {}),
+        ...(input.pins ? { pins: input.pins } : {}),
       },
-    };
+    });
+  }
+
+  function downloadReport(input, el) {
+    const payload = buildPayload(input, el);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+    a.download = `papercut-${new Date().toISOString().slice(0, 10)}-${payload.report.id.slice(0, 8)}.json`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    return payload;
+  }
+
+  async function report(input = {}, el) {
+    const payload = buildPayload(input, el);
     const r = await send(payload);
     if (r.delivered) return r.data;
     if (!r.transient) return Object.assign({ ok: false, queued: false }, r.data);
@@ -220,6 +294,7 @@
     .counter { font-size: 12px; color: #666; text-align: right; }
     .status { min-height: 1.4em; font-size: 13px; }
     .status a { color: #111; }
+    .tab.dragging { cursor: grabbing; }
     .box { position: fixed; pointer-events: none; border: 2px solid #d00; background: rgba(221,0,0,.08); z-index: 2147483645; }
     .hint { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); background: #111; color: #fff; padding: 6px 10px;
       border-radius: 4px; z-index: 2147483647; }
@@ -259,7 +334,7 @@
 
     function setTarget(el) {
       picked = el;
-      els.target.textContent = el ? cssPath(el) : 'Whole view';
+      els.target.textContent = el ? cssPath(el) : t.whole;
       els.parent.disabled = !el || !el.parentElement || el.parentElement === document.documentElement;
       showBox(el);
     }
@@ -295,7 +370,21 @@
       for (const [type, fn] of PICK_EVENTS) removeEventListener(type, fn, true);
     }
 
+    const isHidden = () => { try { return typeof window.papercutsHidden === 'function' && !!window.papercutsHidden(); } catch (_) { return false; } };
+
+    // A modal <dialog> sits in the top layer and makes the rest of the page inert. Inside it, the widget stays usable.
+    function home() {
+      const modal = [...document.querySelectorAll('dialog[open]')].filter((d) => { try { return d.matches(':modal'); } catch (_) { return false; } }).pop();
+      return modal || document.documentElement;
+    }
+    function rehome() {
+      const target = home();
+      if (host.parentNode !== target) target.append(host);
+    }
+
     function open() {
+      if (isHidden()) return;
+      rehome();
       els.panel.hidden = false;
       setTarget(picked);
       els.text.focus();
@@ -307,23 +396,62 @@
     }
     const toggle = () => (els.panel.hidden ? open() : close());
 
+    const clearForm = () => { els.text.value = ''; els.counter.textContent = '0 / 300'; };
+
     async function submit() {
       const text = els.text.value.trim();
-      if (!text) { els.status.textContent = 'Write one sentence first.'; return; }
+      if (!text) { els.status.textContent = t.writeFirst; return; }
+      const input = { kind: els.kind.value, text, from: 'human' };
+      if (DOWNLOAD) {
+        downloadReport(input, picked);
+        clearForm();
+        els.status.textContent = t.downloaded;
+        return;
+      }
       els.send.disabled = true;
-      els.status.textContent = 'Sending…';
-      const r = await window.papercuts.report({ kind: els.kind.value, text, from: 'human', _el: picked });
+      els.status.textContent = t.sending;
+      const r = await window.papercuts.report({ ...input, _el: picked });
       els.send.disabled = false;
       els.status.textContent = '';
       if (r.ok) {
-        els.status.append('Sent: ', h('a', { href: r.url, target: '_blank', rel: 'noopener' }, `#${r.issue}`));
-        els.text.value = '';
-        els.counter.textContent = '0 / 300';
+        els.status.append(t.sent, h('a', { href: r.url, target: '_blank', rel: 'noopener' }, `#${r.issue}`));
+        clearForm();
       } else if (r.queued) {
-        els.status.textContent = `Saved in this browser: ${r.error}. ${r.help}.`;
+        els.status.textContent = /log in/.test(r.error) ? t.savedLogin : t.saved;
       } else {
-        els.status.textContent = `Not sent: ${r.error}. ${r.help || ''}`;
+        els.status.textContent = `${t.notSent}${r.error}. ${r.help || ''}`;
       }
+    }
+
+    // The tab can be dragged up and down. A short press without a move is a click.
+    function makeDraggable(tab) {
+      let start = null;
+      let moved = false;
+      tab.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        start = { y: e.clientY, top: tab.getBoundingClientRect().top + tab.offsetHeight / 2 };
+        moved = false;
+        tab.setPointerCapture(e.pointerId);
+      });
+      tab.addEventListener('pointermove', (e) => {
+        if (!start) return;
+        const dy = e.clientY - start.y;
+        if (!moved && Math.abs(dy) < 6) return;
+        moved = true;
+        tab.classList.add('dragging');
+        const mid = Math.min(innerHeight - 40, Math.max(40, start.top + dy));
+        tab.style.top = `${(mid / innerHeight) * 100}%`;
+      });
+      const end = () => {
+        if (!start) return;
+        start = null;
+        tab.classList.remove('dragging');
+        if (moved) { try { localStorage.setItem(POS_KEY, tab.style.top); } catch (_) { /* position for this page only */ } }
+      };
+      tab.addEventListener('pointerup', end);
+      tab.addEventListener('pointercancel', end);
+      tab.addEventListener('click', (e) => { if (moved) { e.preventDefault(); moved = false; return; } toggle(); });
+      try { const top = localStorage.getItem(POS_KEY); if (/^\d+(\.\d+)?%$/.test(top || '')) tab.style.top = top; } catch (_) { /* default place */ }
     }
 
     host = document.createElement('papercuts-widget');
@@ -337,28 +465,29 @@
       shadow.append(h('style', {}, CSS_TEXT));
     }
     els.count = h('span', { class: 'count' });
-    els.tab = h('button', { class: 'tab', type: 'button', title: 'Report a papercut (Alt+Shift+P)', onclick: toggle }, 'Papercut', els.count);
+    els.tab = h('button', { class: 'tab', type: 'button', title: t.tabTitle }, t.tab, els.count);
+    makeDraggable(els.tab);
     els.target = h('div', { class: 'target' });
-    els.parent = h('button', { type: 'button', class: 'parent', onclick: () => picked && setTarget(picked.parentElement) }, 'Parent');
-    els.kind = h('select', { 'aria-label': 'Kind' }, ...['bug', 'ux', 'copy', 'other'].map((k) => h('option', { value: k }, k)));
-    els.text = h('textarea', { maxlength: '300', placeholder: 'One sentence: what is wrong?', 'aria-label': 'Papercut' });
+    els.parent = h('button', { type: 'button', class: 'parent', onclick: () => picked && setTarget(picked.parentElement) }, t.parent);
+    els.kind = h('select', { 'aria-label': t.kind }, ...KINDS.map((k) => h('option', { value: k }, t.kinds[k])));
+    els.text = h('textarea', { maxlength: '300', placeholder: t.placeholder, 'aria-label': t.title });
     els.counter = h('div', { class: 'counter' }, '0 / 300');
     els.text.addEventListener('input', () => { els.counter.textContent = `${els.text.value.length} / 300`; });
     els.text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); });
-    els.send = h('button', { type: 'button', class: 'send', onclick: submit }, 'Send');
+    els.send = h('button', { type: 'button', class: 'send', onclick: submit }, DOWNLOAD ? t.download : t.send);
     els.status = h('div', { class: 'status', role: 'status' });
     els.panel = h('div', { class: 'panel', hidden: '' },
-      h('h2', {}, 'Papercut'),
+      h('h2', {}, t.title),
       els.target,
       h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'pick', onclick: startPicking }, 'Pick'),
+        h('button', { type: 'button', class: 'pick', onclick: startPicking }, t.pick),
         els.parent,
-        h('button', { type: 'button', class: 'whole', onclick: () => setTarget(null) }, 'Whole view')),
+        h('button', { type: 'button', class: 'whole', onclick: () => setTarget(null) }, t.whole)),
       els.kind, els.text, els.counter,
-      h('div', { class: 'row' }, els.send, h('button', { type: 'button', class: 'close', onclick: close }, 'Close')),
+      h('div', { class: 'row' }, els.send, h('button', { type: 'button', class: 'close', onclick: close }, t.close)),
       els.status);
     els.box = h('div', { class: 'box', hidden: '' });
-    els.hint = h('div', { class: 'hint', hidden: '' }, 'Tap the part you mean. Esc cancels.');
+    els.hint = h('div', { class: 'hint', hidden: '' }, t.hint);
     shadow.append(els.box, els.hint, els.tab, els.panel);
     document.documentElement.append(host);
     setTarget(null);
@@ -366,12 +495,21 @@
     addEventListener('keydown', (e) => {
       if (e.altKey && e.shiftKey && e.code === 'KeyP') { e.preventDefault(); toggle(); }
     });
+    new MutationObserver(rehome).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
+    // The page decides when the widget hides, for example in a print or kids view.
+    const applyHidden = () => {
+      const hide = isHidden();
+      els.tab.hidden = hide;
+      if (hide && !els.panel.hidden) close();
+    };
+    applyHidden();
+    setInterval(applyHidden, 1000);
 
     return {
       open,
       async badge() {
         const n = (await queued()).length;
-        els.count.textContent = n ? ` · ${n} waiting` : '';
+        els.count.textContent = n ? t.waiting(n) : '';
       },
       notice(text) { els.status.textContent = text; },
     };
@@ -389,6 +527,7 @@
   };
 
   async function start() {
+    if (DOWNLOAD) { ui = createUi(); return; }
     const s = await status();
     if (!s.reachable) return;
     ui = createUi();

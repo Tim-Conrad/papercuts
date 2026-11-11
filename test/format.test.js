@@ -180,3 +180,17 @@ test('place keeps viewport, selector and storage, redacted', () => {
   assert.equal(r.place.storage.theme, 'dark');
   assert.equal(r.place.storage.auth, '[redacted]');
 });
+
+test('the widget redacts with the same patterns as the relay', async () => {
+  const { readFileSync } = await import('node:fs');
+  const block = (file) => {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const m = text.match(/\/\/ SECRET-START\n([\s\S]*?)\/\/ SECRET-END/);
+    assert.ok(m, `no SECRET block in ${file}`);
+    // Compare the patterns only: no comments, no indentation.
+    return [...m[1].matchAll(/String\.raw`([^`]*)`/g)].map((x) => x[1]);
+  };
+  const relay = block('../src/format.js');
+  assert.equal(relay.length, 8);
+  assert.deepEqual(block('../widget/papercuts.js'), relay);
+});

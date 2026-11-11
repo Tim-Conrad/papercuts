@@ -12,6 +12,7 @@ const PNG_PREFIX = 'data:image/png;base64,';
 
 // Ported from pen-and-paper papercut.py (GEHEIM). sk- only at the start of a word:
 // disk-usage-report.md and task-list-view are no keys.
+// SECRET-START
 const SECRET = new RegExp([
   String.raw`(?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{8,}`,
   String.raw`gh[opsur]_[A-Za-z0-9]{8,}`,          // ghp_ (PAT), gho_ (gh auth token), ghs_, ghu_, ghr_
@@ -23,6 +24,7 @@ const SECRET = new RegExp([
   // key=value and JSON "key": "value", as console.error(JSON) logs it
   String.raw`["']?(?:api[_-]?key|token|password|passwd|secret)["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,}]+)`,
 ].join('|'), 'gi');
+// SECRET-END
 const REPO = /^(?!\.\.?\/)[A-Za-z0-9_.-]+\/(?!\.\.?$)[A-Za-z0-9_.-]+$/;
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
