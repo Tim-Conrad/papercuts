@@ -1,6 +1,6 @@
 // The papercuts CLI for agents. It follows the AXI rules (https://axi.md): TOON on stdout,
 // content first, errors with a help line, exit 0 / 1 / 2, no prompts.
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -224,6 +224,14 @@ function scopeLines(target, centralRepo) {
     : ['fine-grained token, repository access: each repo in PAPERCUTS_REPOS', 'permission: Issues: read and write'];
 }
 
+// Write a temp file, then rename it, so that a crash never leaves half a settings file.
+function writeAtomic(file, text) {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, text);
+  renameSync(tmp, file);
+}
+
 function installHook(file, command) {
   let data = {};
   if (existsSync(file)) {
@@ -238,8 +246,7 @@ function installHook(file, command) {
   } else {
     list.push({ matcher: '', hooks: [{ type: 'command', command, timeout: 10 }] });
   }
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
+  writeAtomic(file, JSON.stringify(data, null, 2) + '\n');
 }
 
 export async function run(argv, ctx = {}) {
@@ -286,10 +293,10 @@ export async function run(argv, ctx = {}) {
       for (const h of hooks) if (!['claude', 'codex'].includes(h)) throw usageError(`unknown hook target "${h}"`, 'use --hooks claude,codex or --hooks none');
       const config = { target: flags.target, ...(flags.target === 'central' ? { centralRepo: flags.repo } : {}) };
       const file = configPath(env);
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+      writeAtomic(file, JSON.stringify(config, null, 2) + '\n');
       const home = env.HOME || homedir();
-      const command = `'${process.execPath}' '${BIN}' --hook`;
+      // papercuts from the PATH survives a Node upgrade. The stored path is the fallback.
+      const command = `sh -c 'command -v papercuts >/dev/null 2>&1 && exec papercuts --hook || exec "${process.execPath}" "${BIN}" --hook'`;
       const files = { claude: join(home, '.claude', 'settings.json'), codex: join(home, '.codex', 'hooks.json') };
       for (const h of hooks) installHook(files[h], command);
       print({

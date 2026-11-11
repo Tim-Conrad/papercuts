@@ -17,6 +17,7 @@ export async function fakeGithub({ token = 'test-token-123' } = {}) {
     state.requests.push({ method: req.method, path: url.pathname, query: url.search, body, auth: req.headers.authorization });
     const send = (code, data) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(data)); };
     if (state.fail) return send(state.fail, { message: `Bad credentials ${token}` });
+    if (state.failOnce) { const code = state.failOnce; state.failOnce = null; return send(code, { message: 'Bad credentials' }); }
     if (req.headers.authorization !== `Bearer ${token}`) return send(401, { message: 'Bad credentials' });
     if (url.pathname === '/user') return send(200, { login: 'tester' });
     let m = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/);

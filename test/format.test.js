@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { redact, normalizeReport, fingerprint, buildIssue, parseMarkers, KINDS } from '../src/format.js';
+import { redact, normalizeReport, fingerprint, buildIssue, parseMarkers, KINDS, WIDGET_KINDS } from '../src/format.js';
 
 const PER = { mode: 'per-project' };
 const ok = (input, from = 'agent') => {
@@ -32,7 +32,7 @@ test('keeps disk-usage-report.md', () => {
 test('rejects unknown kind', () => {
   const r = normalizeReport({ kind: 'nope', text: 'x', repo: 'a/b' }, 'agent');
   assert.equal(r.ok, false);
-  assert.match(r.help, /bug, ux, copy, tool, rule, path, other/);
+  assert.match(r.help, /bug, ux, copy, tool, rule, path, idea, other/);
 });
 
 test('rejects empty text', () => {
@@ -100,7 +100,7 @@ test('context cannot break out of markers', () => {
   assert.equal(parseMarkers(buildIssue(r, PER).body).id, r.id);
 });
 
-test('KINDS', () => assert.deepEqual(KINDS, ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'other']));
+test('KINDS', () => assert.deepEqual(KINDS, ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'idea', 'other']));
 
 test('redacts json, gh token families, basic auth, url creds, slack', () => {
   const cases = ['{"password":"hunter2"}', "{'api_key': 'abc123xyz'}", 'gho_abcdefgh12345678', 'ghs_abcdefgh12345678',
@@ -122,4 +122,9 @@ test('context key cannot close the yaml fence', () => {
 
 test('rejects dot repo names', () => {
   for (const repo of ['a/.', 'a/..', './b']) assert.equal(normalizeReport({ kind: 'bug', text: 'x', repo }, 'agent').ok, false, repo);
+});
+
+test('idea is a kind, also in the widget', () => {
+  assert.equal(normalizeReport({ kind: 'idea', text: 'x', repo: 'a/b' }, 'human').ok, true);
+  assert.ok(WIDGET_KINDS.includes('idea'));
 });

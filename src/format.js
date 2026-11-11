@@ -2,8 +2,8 @@
 // Validate and redact here, before anything leaves the machine. The relay runs the same code again.
 import { createHash, randomUUID } from 'node:crypto';
 
-export const KINDS = ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'other'];
-export const WIDGET_KINDS = ['bug', 'ux', 'copy', 'other'];
+export const KINDS = ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'idea', 'other'];
+export const WIDGET_KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
 export const SOURCES = ['human', 'agent'];
 
 export const LIMITS = { text: 300, where: 120, field: 500, errors: 20, body: 60000, title: 70 };

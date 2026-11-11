@@ -112,3 +112,13 @@ test('broker credential is not implemented', async () => {
   const c = credentialFrom({ source: 'broker', socket: '/x' });
   await assert.rejects(c.token(), /not implemented in v0.1/);
 });
+
+test('401 clears the cached token and retries once', async () => {
+  let calls = 0;
+  const c = githubClient({ credential: { token: async () => { calls++; return gh.token; }, describe: () => 'test' }, apiBase: gh.apiBase });
+  await c.user();
+  gh.state.failOnce = 401;
+  const me = await c.user();
+  assert.equal(me.login, 'tester');
+  assert.equal(calls, 2);
+});

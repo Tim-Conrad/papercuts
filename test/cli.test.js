@@ -233,3 +233,32 @@ test('repoFromGit parses ssh and https', () => {
   assert.equal(parseRemote('https://github.com/Tim-Conrad/my.site.git\n'), 'Tim-Conrad/my.site');
   assert.equal(parseRemote('https://gitlab.com/a/b'), null);
 });
+
+test('setup writes atomically and keeps a broken settings file', async () => {
+  mkdirSync(join(home, '.claude'));
+  const settings = join(home, '.claude', 'settings.json');
+  writeFileSync(settings, '{ broken');
+  const { code, out } = await cli('setup', '--target', 'per-project', '--hooks', 'claude');
+  assert.equal(code, 1);
+  assert.match(out, /settings\.json is not valid JSON/);
+  assert.equal(readFileSync(settings, 'utf8'), '{ broken');
+  writeFileSync(settings, '{}');
+  assert.equal((await cli('setup', '--target', 'per-project', '--hooks', 'claude,codex')).code, 0);
+  const { readdirSync } = await import('node:fs');
+  for (const d of [join(home, '.claude'), join(home, '.codex'), join(home, '.config', 'papercuts')]) {
+    assert.deepEqual(readdirSync(d).filter((f) => f.endsWith('.tmp')), []);
+  }
+});
+
+test('hook command uses papercuts from PATH first, then the stored path', async () => {
+  assert.equal((await cli('setup', '--target', 'per-project', '--hooks', 'claude')).code, 0);
+  const s = JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'));
+  const cmd = s.hooks.SessionStart[0].hooks[0].command;
+  assert.match(cmd, /command -v papercuts/);
+  assert.ok(cmd.includes(process.execPath));
+  assert.ok(cmd.includes('bin/papercuts.js'));
+  const again = await cli('setup', '--target', 'per-project', '--hooks', 'claude');
+  assert.equal(again.code, 0);
+  const s2 = JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'));
+  assert.equal(s2.hooks.SessionStart.length, 1);
+});

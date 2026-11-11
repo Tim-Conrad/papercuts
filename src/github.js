@@ -9,7 +9,8 @@ export class GithubError extends Error {
 
 export function githubClient({ credential, apiBase = 'https://api.github.com', fetchImpl = fetch }) {
   let cached;
-  async function call(method, path, body) {
+  // A 401 means the token changed (gh auth refresh, a new PAT). Ask the source again, once.
+  async function call(method, path, body, retried = false) {
     cached ??= credential.token();
     let token;
     try {
@@ -38,6 +39,10 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', f
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (res.status === 401 && !retried) {
+      cached = undefined;
+      return call(method, path, body, true);
+    }
     if (!res.ok) {
       const message = String(data?.message || res.statusText || 'error').split(token).join('[redacted]').slice(0, 200);
       const err = new GithubError(res.status, message);
