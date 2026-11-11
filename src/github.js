@@ -126,6 +126,16 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', u
       if (!res.ok) throw new GithubError(res.status, `picture download failed`);
       return Buffer.from(await res.arrayBuffer());
     },
+    // A text file of the default branch, or null if it does not exist.
+    async getFile(repo, path) {
+      try {
+        const f = await call('GET', `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`);
+        return f && f.encoding === 'base64' ? Buffer.from(f.content, 'base64').toString('utf8') : null;
+      } catch (e) {
+        if (e.status === 404) return null;
+        throw e;
+      }
+    },
     getIssue: (repo, n) => call('GET', `/repos/${repo}/issues/${n}`),
     comments: (repo, n) => call('GET', `/repos/${repo}/issues/${n}/comments?per_page=100`),
     createIssue: (repo, issue) => call('POST', `/repos/${repo}/issues`, issue),

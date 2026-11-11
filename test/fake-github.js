@@ -2,7 +2,7 @@
 import http from 'node:http';
 
 export async function fakeGithub({ token = 'test-token-123' } = {}) {
-  const state = { issues: {}, labels: {}, requests: [], fail: null, next: 1, lag: false, hidden: new Set(), uploads: [], uploadFail: null };
+  const state = { issues: {}, labels: {}, requests: [], fail: null, next: 1, lag: false, hidden: new Set(), uploads: [], uploadFail: null, files: {} };
   const repoOf = (owner, name) => {
     const key = `${owner}/${name}`;
     state.issues[key] ??= [];
@@ -41,6 +41,12 @@ export async function fakeGithub({ token = 'test-token-123' } = {}) {
     const key = repoOf(m[1], m[2]);
     const rest = m[3] || '';
     const list = state.issues[key];
+    // Repo files, as GET /repos/{repo}/contents/{path} answers them (base64).
+    if (rest.startsWith('/contents/') && req.method === 'GET') {
+      const text = (state.files[key] || {})[decodeURIComponent(rest.slice('/contents/'.length))];
+      if (text === undefined) return send(404, { message: 'Not Found' });
+      return send(200, { type: 'file', encoding: 'base64', content: Buffer.from(text).toString('base64') });
+    }
     if (rest === '' && req.method === 'GET') return send(200, { id: 4242, full_name: key, permissions: { push: true } });
     if (rest === '/labels' && req.method === 'POST') {
       if (state.labels[key].has(body.name)) return send(422, { message: 'Validation Failed', errors: [{ code: 'already_exists' }] });

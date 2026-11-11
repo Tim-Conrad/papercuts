@@ -122,10 +122,10 @@ export function fingerprint(report) {
   return createHash('sha256').update(`${report.kind}|${norm(report.where)}|${norm(report.text)}`).digest('hex').slice(0, 16);
 }
 
-export function labelsFor(report, target) {
+export function labelsFor(report, target, extra = []) {
   const labels = ['papercut', `from:${report.from}`, `kind:${report.kind}`];
   if (target?.mode === 'central') labels.push(`project:${report.repo}`);
-  return labels;
+  return [...new Set([...labels, ...extra])];
 }
 
 function yamlValue(v) {
@@ -169,15 +169,21 @@ function placeMarkerFor(place) {
   return undefined;
 }
 
-export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
+export function buildIssue(report, target, { shotUrl, shotNote, config } = {}) {
   const cut = report.text.length > LIMITS.title;
   const title = `papercut: ${cut ? `${report.text.slice(0, LIMITS.title - 1).trimEnd()}…` : report.text}`;
   const extra = [];
+  // The fields of .github/papercuts.json, one line each, with the label of the repo.
+  const fieldLines = Object.entries(report.fields || {}).map(([id, v]) => {
+    const label = ((config && config.fields) || []).find((f) => f.id === id)?.label || id;
+    return `**${clean(label)}** ${v}`;
+  });
+  if (fieldLines.length) extra.push(fieldLines.join('  \n'));
   if (shotUrl) extra.push(`![papercut](${shotUrl})`);
   else if (shotNote) extra.push(`_${shotNote}_`);
   if (report.pins?.length) extra.push(report.pins.map((p) => `${p.nr}. ${p.text || '(no text)'}`).join('\n'));
   const lead = [report.text, ...extra].join('\n\n');
-  const head = { kind: report.kind, from: report.from, where: report.where, repo: report.repo };
+  const head = { kind: report.kind, from: report.from, where: report.where, repo: report.repo, ...(report.fields && Object.keys(report.fields).length ? { fields: report.fields } : {}) };
   let meta = yamlLines({ ...head, context: report.context }).join('\n');
   const markers = [`<!-- papercut-id: ${report.id} -->`];
   if (report.from === 'agent') markers.push(`<!-- papercut-fp: ${fingerprint(report)} -->`);
@@ -187,7 +193,8 @@ export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
   const room = Math.max(0, LIMITS.body - lead.length - markers.join('\n').length - 40);
   meta = shorten(meta, room);
   const body = `${lead}\n\n\`\`\`yaml\n${meta}\n\`\`\`\n\n${markers.join('\n')}\n`;
-  return { title, body, labels: labelsFor(report, target) };
+  const labels = [...(config?.labels || []), ...((config?.labelsByKind || {})[report.kind] || [])];
+  return { title, body, labels: labelsFor(report, target, labels), ...(config?.assignees?.length ? { assignees: config.assignees } : {}) };
 }
 
 export function parseMarkers(body) {

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Tim-Conrad/papercuts/main/schema/papercuts.schema.json",
+  "title": "papercuts ticket config (.github/papercuts.json)",
+  "description": "What a papercut of this repo contains. Every key is optional. The relay drops a broken part with a warning and uses the default.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "kinds": {
+      "description": "The kinds that the widget offers, in this order.",
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "enum": ["bug", "ux", "copy", "tool", "rule", "path", "idea", "other"] }
+    },
+    "fields": {
+      "description": "Extra fields of each papercut. A field with options is a choice, else one line of text.",
+      "type": "array", "maxItems": 8,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,31}$" },
+          "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "required": { "type": "boolean", "default": false },
+          "options": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 60 } }
+        }
+      }
+    },
+    "presets": {
+      "description": "Quick phrases. One tap fills kind and text.",
+      "type": "array", "maxItems": 12,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["kind", "text"],
+        "properties": {
+          "kind": { "enum": ["bug", "ux", "copy", "tool", "rule", "path", "idea", "other"] },
+          "text": { "type": "string", "minLength": 1, "maxLength": 300 }
+        }
+      }
+    },
+    "labels": { "description": "Labels for each new issue.", "type": "array", "maxItems": 10, "items": { "type": "string", "minLength": 1, "maxLength": 50 } },
+    "labelsByKind": {
+      "description": "Extra labels per kind.",
+      "type": "object",
+      "propertyNames": { "enum": ["bug", "ux", "copy", "tool", "rule", "path", "idea", "other"] },
+      "additionalProperties": { "type": "array", "maxItems": 10, "items": { "type": "string", "minLength": 1, "maxLength": 50 } }
+    },
+    "assignees": { "description": "GitHub logins that get each new issue.", "type": "array", "maxItems": 5, "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$" } },
+    "context": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "storage": { "description": "localStorage keys to include, or [\"*\"] for all.", "type": "array", "items": { "type": "string" } },
+        "skipStorage": { "description": "Keys to leave out with [\"*\"].", "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "lang": { "description": "The language of the widget when the page sets no data-lang.", "type": "string", "pattern": "^[a-z]{2}(-[A-Za-z]{2})?$" }
+  }
+}
