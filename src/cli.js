@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { toon } from './toon.js';
+import { openPapercuts } from './list.js';
 import { normalizeReport, redact, shorten, KINDS } from './format.js';
 import { fileReport, targetRepo } from './file.js';
 import { githubClient, GithubError } from './github.js';
@@ -200,21 +201,8 @@ If a papercut needs a decision from Tim, do not close it. Write two or three opt
 }
 
 async function openRows(client, repo, label) {
-  const issues = await client.listOpen(repo, label);
-  return Promise.all(issues.map(async (i) => {
-    const names = i.labels.map((l) => (typeof l === 'string' ? l : l.name));
-    let plus = 0;
-    if (i.comments > 0) plus = (await client.comments(repo, i.number)).filter((c) => /^\+1\b/.test(c.body || '')).length;
-    return {
-      id: i.number,
-      kind: (names.find((n) => n.startsWith('kind:')) || 'kind:other').slice(5),
-      from: (names.find((n) => n.startsWith('from:')) || 'from:human').slice(5),
-      title: String(i.title).replace(/^papercut: /, ''),
-      count: 1 + plus,
-      url: i.html_url,
-      created: i.created_at,
-      where: (String(i.body).match(/^where: (.*)$/m) || [])[1] || '',
-    };
+  return (await openPapercuts(client, repo, label)).map((p) => ({
+    id: p.issue, kind: p.kind, from: p.from, title: p.title, count: 1 + p.plus, url: p.url, created: p.created, where: p.where,
   }));
 }
 

@@ -58,6 +58,13 @@ function cleanContext(value, depth = 0) {
   return undefined;
 }
 
+// Where the reporter was: the page can scroll back there. Kept exact (only redacted) for the marker.
+function cleanPlace(p) {
+  if (!p || typeof p !== 'object') return undefined;
+  const num = (v) => (Number.isFinite(v) ? Math.round(v) : 0);
+  return { url: redact(String(p.url ?? '')).slice(0, 500), hash: redact(String(p.hash ?? '')).slice(0, 200), scrollX: num(p.scrollX), scrollY: num(p.scrollY) };
+}
+
 export function normalizeReport(input, from) {
   if (!SOURCES.includes(from)) return fail(`unknown source "${from}"`, 'use one of: human, agent');
   const src = input && typeof input === 'object' ? input : {};
@@ -76,6 +83,7 @@ export function normalizeReport(input, from) {
     raw.errors = [`(${raw.errors.length - LIMITS.errors} more)`, ...raw.errors.slice(-LIMITS.errors)];
   }
   const context = cleanContext(raw);
+  const place = cleanPlace(raw.place);
   let shot;
   if (src.shot != null) {
     const bad = fail('shot is not a PNG of at most 8 MB', 'send the picture as data:image/png;base64,..., or leave it out');
@@ -89,7 +97,7 @@ export function normalizeReport(input, from) {
     nr: Number.isInteger(p?.nr) ? p.nr : i + 1,
     text: shorten(clean(String(p?.text ?? '').replace(/\s+/g, ' ').trim()), LIMITS.pin),
   }));
-  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context, shot, pins } };
+  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context, place, shot, pins } };
 }
 
 export function fingerprint(report) {
@@ -138,6 +146,8 @@ export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
   let meta = yamlLines({ ...head, context: report.context }).join('\n');
   const markers = [`<!-- papercut-id: ${report.id} -->`];
   if (report.from === 'agent') markers.push(`<!-- papercut-fp: ${fingerprint(report)} -->`);
+  // encodeURIComponent turns < and > into %3C and %3E, so the value cannot close the comment.
+  if (report.place) markers.push(`<!-- papercut-place: ${encodeURIComponent(JSON.stringify(report.place))} -->`);
   const room = LIMITS.body - lead.length - markers.join('\n').length - 40;
   meta = shorten(meta, room);
   const body = `${lead}\n\n\`\`\`yaml\n${meta}\n\`\`\`\n\n${markers.join('\n')}\n`;
@@ -152,6 +162,10 @@ export function parseMarkers(body) {
   const out = {};
   const id = last(/<!-- papercut-id: ([A-Za-z0-9_-]+) -->/g);
   const fp = last(/<!-- papercut-fp: ([0-9a-f]{16}) -->/g);
+  const place = last(/<!-- papercut-place: ([A-Za-z0-9%._~!*'()-]+) -->/g);
+  if (place) {
+    try { out.place = JSON.parse(decodeURIComponent(place)); } catch { /* a broken marker is no place */ }
+  }
   if (id) out.id = id;
   if (fp) out.fp = fp;
   return out;

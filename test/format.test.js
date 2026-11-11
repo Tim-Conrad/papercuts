@@ -163,3 +163,11 @@ test('buildIssue shows the picture and the pins', () => {
   assert.match(body, /^Look here\n\n!\[papercut\]\(https:\/\/github\.com\/user-attachments\/assets\/x\)/);
   assert.match(body, /\n1\. too small\n2\. wrong color\n/);
 });
+
+test('place marker round trip, also with --> in the URL', () => {
+  const place = { url: 'https://x.lab.t7d.dev/a?b=-->c', hash: '#karte-12', scrollX: 0, scrollY: 640 };
+  const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', context: { place } }, 'human').report;
+  const { body } = buildIssue(r, { mode: 'per-project' });
+  assert.equal((body.match(/-->/g) || []).length, (body.match(/<!--/g) || []).length);
+  assert.deepEqual(parseMarkers(body).place, place);
+});

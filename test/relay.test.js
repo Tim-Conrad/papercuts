@@ -200,3 +200,63 @@ test('a report with a picture of 1 MB goes through', async () => {
   const res = await post(report({ shot }));
   assert.equal(res.status, 200);
 });
+
+const list = (repo, origin = ALLOWED) => fetch(`${base}/list?repo=${encodeURIComponent(repo)}`, { headers: origin ? { origin } : {} });
+
+test('list: open papercuts with replies and place', async () => {
+  const place = { url: 'https://shop.lab.t7d.dev/', hash: '#a', scrollX: 0, scrollY: 10 };
+  const one = await (await post(report({ text: 'first', context: { place } }))).json();
+  await post(report({ text: 'second' }));
+  const issue = gh.state.issues['Tim-Conrad/shop'].find((i) => i.number === one.issue);
+  issue.commentList.push('+1 at x', 'Fixed in abc1234, please check');
+  issue.comments = 2;
+  const res = await list('Tim-Conrad/shop');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('access-control-allow-origin'), ALLOWED);
+  const j = await res.json();
+  assert.equal(j.ok, true);
+  assert.equal(j.items.length, 2);
+  const first = j.items.find((i) => i.issue === one.issue);
+  assert.equal(first.title, 'first');
+  assert.equal(first.kind, 'bug');
+  assert.equal(first.from, 'human');
+  assert.equal(first.replyCount, 1);
+  assert.equal(first.plus, 1);
+  assert.equal(first.replies[0].text, 'Fixed in abc1234, please check');
+  assert.deepEqual(first.place, place);
+});
+
+test('list: foreign origin gets 403 and no items', async () => {
+  await post(report());
+  const res = await list('Tim-Conrad/shop', 'https://evil.example');
+  assert.equal(res.status, 403);
+  const j = await res.json();
+  assert.equal(j.items, undefined);
+});
+
+test('list: without Origin (the CLI) is allowed', async () => {
+  await post(report());
+  const res = await list('Tim-Conrad/shop', null);
+  assert.equal(res.status, 200);
+});
+
+test('list: repo outside the allow list gets 403', async () => {
+  const res = await list('evil/repo');
+  assert.equal(res.status, 403);
+  assert.equal(gh.state.requests.length, 0);
+});
+
+test('list: a second call within 30 s makes no GitHub request', async () => {
+  await post(report());
+  await list('Tim-Conrad/shop');
+  const n = gh.state.requests.length;
+  await list('Tim-Conrad/shop');
+  assert.equal(gh.state.requests.length, n);
+});
+
+test('list: a new report clears the cache of its repo', async () => {
+  await post(report({ text: 'one' }));
+  assert.equal((await (await list('Tim-Conrad/shop')).json()).items.length, 1);
+  await post(report({ text: 'two' }));
+  assert.equal((await (await list('Tim-Conrad/shop')).json()).items.length, 2);
+});
