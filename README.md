@@ -12,7 +12,7 @@ Papercuts is for local sites: dev and review copies on your own machine or home 
 
 ## The parts
 
-- **Widget.** A tab on the edge of a page. You pick the part of the page that you mean, write one sentence, and send. You can mark a picture or a screen picture with a pen and numbered pins. The widget adds the context: the URL, the viewport, the element, the selected text, and the console errors. The panel also lists the open papercuts of the repo with their replies.
+- **Widget.** A tab on the edge of a page. You pick the part of the page that you mean, write one sentence, and send. You can mark a picture or a screen picture with a pen and numbered pins. The widget adds the context: the URL, the viewport, the element, the selected text, and the console errors. The panel also lists the open papercuts of the repo with their replies, and the ones fixed in the last 14 days with the fix note.
 - **JS API.** An agent that drives a browser calls `papercuts.report()` on the same page. It does not need to click the tab.
 - **CLI.** An agent in a terminal runs `papercuts add tool "..."`. The output follows the [AXI](https://axi.md) rules for agent tools.
 - **Relay.** A small server that holds the GitHub credential, serves the widget, and creates the issues. The browser never sees a token.
@@ -36,7 +36,8 @@ Optional attributes on the script tag:
 | Attribute | Use |
 | --- | --- |
 | `data-repo` | Required. The repo for the issues, as `owner/name`. |
-| `data-lang` | `en` (default) or `de`. The language of the widget. The JS API answers in English. |
+| `data-lang` | The language of the widget: `en` (default), `de`, or a language that the site adds (see below). The JS API answers in English. |
+| `data-speech-lang` | The language for speech input, for example `de-DE`. Default: the `lang` of the page. |
 | `data-commit`, `data-branch` | The version of the site. The issue shows them. |
 | `data-storage` | A comma list of `localStorage` keys to include, or `*` for all keys (at most 50). By default the widget sends no `localStorage`, because it can hold tokens or private data. |
 | `data-storage-skip` | With `data-storage="*"`: a comma list of keys to leave out, for example a room code. |
@@ -46,6 +47,8 @@ Hooks for the page:
 
 - `window.papercutsContext = () => ({ openCard: "c12" })` adds your own fields to each report.
 - `window.papercutsHidden = () => true` hides the tab, for example in a print view or a kiosk mode. The widget asks once per second.
+- `window.papercutsReplay = () => [{ click: '.card[data-id="k12"]' }]` records up to five clicks that bring the page back to the reported state, for example a dialog without a URL. `papercuts replay` runs them.
+- `window.papercutsStrings = { fr: { send: "Envoyer", close: "Fermer" } }` adds or changes the words of a language. A missing word falls back to English. Set it before the page finishes loading. The keys are in the table `T` at the top of `widget/papercuts.js`.
 
 In a modal `<dialog>` or in fullscreen, the widget moves into the dialog or the fullscreen element, so that it stays usable. After "Parent", "Smaller" goes back down to the element that you picked.
 
@@ -159,7 +162,7 @@ Routes:
 | --- | --- |
 | `GET /papercuts.js` | The widget. |
 | `POST /report` | File one report (max 12 MB with a picture). |
-| `GET /list?repo=owner/name` | The open papercuts with replies and place. A browser must come from an allowed origin. |
+| `GET /list?repo=owner/name` | The open papercuts and the ones closed in the last 14 days, with replies, fix note and place. A browser must come from an allowed origin. |
 | `GET /shots/<id>.png` | A picture that GitHub refused. |
 | `GET /status`, `GET /healthz` | Health. |
 

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { normalizeReport } from './format.js';
 import { fileReport } from './file.js';
 import { shotStore } from './shots.js';
-import { openPapercuts } from './list.js';
+import { listPapercuts } from './list.js';
 import { originAllowed, repoAllowed, VERSION } from './config.js';
 
 const WIDGET = fileURLToPath(new URL('../widget/papercuts.js', import.meta.url));
@@ -24,7 +24,7 @@ export function createRelay(config, { client }) {
     const hit = listCache.get(repo);
     if (hit && Date.now() - hit.at < config.listCacheMs) return hit.items;
     const central = config.target.mode === 'central';
-    const items = openPapercuts(client, central ? config.target.centralRepo : repo, central ? `papercut,project:${repo}` : 'papercut');
+    const items = listPapercuts(client, central ? config.target.centralRepo : repo, central ? `papercut,project:${repo}` : 'papercut');
     listCache.set(repo, { at: Date.now(), items });
     items.catch(() => listCache.delete(repo));
     return items;

@@ -21,6 +21,13 @@ with sync_playwright() as p:
     ctx.add_init_script("(s => { try { for (const k in s) localStorage.setItem(k, s[k]); } catch (e) {} })(%s)" % json.dumps(data.get("storage") or {}))
     page = ctx.new_page()
     page.goto(data["url"], wait_until="networkidle")
+    # Clicks that bring back a state without a URL, for example an open dialog.
+    for step in data.get("steps") or []:
+        try:
+            page.click(step["click"], timeout=5000)
+            page.wait_for_timeout(300)
+        except Exception as e:
+            print(f"replay: step {step['click']} failed: {e}", file=sys.stderr)
     page.evaluate("([x, y]) => window.scrollTo(x, y)", [data.get("scrollX") or 0, data.get("scrollY") or 0])
     if data.get("selector"):
         page.evaluate("""s => { const e = document.querySelector(s); if (e) { e.style.outline = '3px solid red'; e.style.outlineOffset = '2px'; } }""", data["selector"])
