@@ -160,7 +160,7 @@ test('subcommand help', async () => {
 
 test('version fast path', () => {
   for (const flag of ['-v', '-V', '--version']) {
-    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.1.0\n');
+    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.2.0\n');
   }
 });
 
