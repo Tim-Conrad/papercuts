@@ -2,13 +2,15 @@
 // Prints one JSON line with the URLs. Control: GET <control>/mode?m=ok|down|redirect, GET <control>/issues.
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
+import { deflateSync } from 'node:zlib';
 import { fakeGithub } from '../fake-github.js';
 import { githubClient } from '../../src/github.js';
 import { createRelay } from '../../src/relay.js';
 import { loadConfig } from '../../src/config.js';
 
 const gh = await fakeGithub();
-const client = githubClient({ credential: { token: async () => gh.token, describe: () => 't' }, apiBase: gh.apiBase });
+// uploadBase: pictures go to the fake GitHub, never to uploads.github.com.
+const client = githubClient({ credential: { token: async () => gh.token, describe: () => 't' }, apiBase: gh.apiBase, uploadBase: gh.apiBase });
 const relay = createRelay(loadConfig({ PAPERCUTS_ORIGINS: 'http://127.0.0.1:*', PAPERCUTS_REPOS: 'Tim-Conrad/*' }), { client });
 const handler = relay.listeners('request')[0];
 let mode = 'ok';
@@ -23,9 +25,27 @@ const front = http.createServer((req, res) => {
 const listen = (s) => new Promise((r) => s.listen(0, '127.0.0.1', () => r(s.address().port)));
 const relayPort = await listen(front);
 const page = readFileSync(new URL('./page.html', import.meta.url), 'utf8').replaceAll('RELAY', `http://127.0.0.1:${relayPort}`);
+// A 120x80 PNG with two color bands, for the drawing sheet.
+function testPng() {
+  const w = 120, h = 80, rows = [];
+  for (let y = 0; y < h; y++) {
+    const row = Buffer.alloc(1 + w * 3);
+    for (let x = 0; x < w; x++) row.set(y < h / 2 ? [40, 90, 200] : [240, 200, 60], 1 + x * 3);
+    rows.push(row);
+  }
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (b) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr.set([8, 2, 0, 0, 0], 8);
+  return Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
+}
+const PIC = testPng();
+
 // ?lang=de adds data-lang to the script tag.
 const pagePort = await listen(http.createServer((req, res) => {
-  const q = new URL(req.url, 'http://x').searchParams;
+  const u = new URL(req.url, 'http://x');
+  if (u.pathname === '/pic.png') { res.writeHead(200, { 'content-type': 'image/png' }); return res.end(PIC); }
+  const q = u.searchParams;
   const html = q.get('lang') ? page.replace('data-repo=', `data-lang="${q.get('lang')}" data-repo=`) : page;
   res.writeHead(200, { 'content-type': 'text/html' });
   res.end(html);
@@ -35,6 +55,6 @@ const controlPort = await listen(http.createServer((req, res) => {
   if (url.pathname === '/mode') mode = url.searchParams.get('m');
   if (url.pathname === '/fail') gh.state.fail = Number(url.searchParams.get('code')) || null;
   res.writeHead(200, { 'content-type': 'application/json' });
-  res.end(JSON.stringify({ mode, issues: gh.state.issues['Tim-Conrad/shop'] || [] }));
+  res.end(JSON.stringify({ mode, issues: gh.state.issues['Tim-Conrad/shop'] || [], uploads: gh.state.uploads.map((x) => x.bytes.subarray(0, 8).toString('hex')) }));
 }));
 console.log(JSON.stringify({ page: `http://127.0.0.1:${pagePort}/`, control: `http://127.0.0.1:${controlPort}` }));

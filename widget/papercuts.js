@@ -25,6 +25,9 @@
       notSent: 'Not sent: ', hint: 'Tap the part you mean. Esc cancels.', waiting: (n) => ` · ${n} waiting`,
       login: 'Log in again at your login page, then the report goes out.', downloaded: 'Saved as a file. Run `papercuts import <file>` later.',
       kinds: { bug: 'bug', ux: 'ux', copy: 'copy', idea: 'idea', other: 'other' },
+      markPic: 'Mark picture', markScreen: 'Mark screen', mic: 'Speak', micStop: 'Stop', pen: 'Pen', pin: 'Pin',
+      undo: 'Undo', clear: 'Clear', cancel: 'Cancel', done: 'Done', pinText: 'What is at this pin?', removePic: 'Remove picture',
+      cannotMark: 'This picture cannot be marked (it comes from another site).', noScreen: 'No screen picture: ',
     },
     de: {
       tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Stelle wählen', parent: 'Größer',
@@ -34,6 +37,9 @@
       notSent: 'Nicht gesendet: ', hint: 'Tippe auf die Stelle. Esc bricht ab.', waiting: (n) => ` · ${n} warten`,
       login: 'Melde dich auf der Login-Seite neu an, dann geht der Bericht raus.', downloaded: 'Als Datei gespeichert. Später `papercuts import <datei>` ausführen.',
       kinds: { bug: 'Fehler', ux: 'Bedienung', copy: 'Text', idea: 'Idee', other: 'Sonst' },
+      markPic: 'Bild markieren', markScreen: 'Bildschirm markieren', mic: 'Sprechen', micStop: 'Stopp', pen: 'Stift', pin: 'Nummer',
+      undo: 'Zurück', clear: 'Leeren', cancel: 'Abbrechen', done: 'Fertig', pinText: 'Was ist an dieser Nummer?', removePic: 'Bild entfernen',
+      cannotMark: 'Dieses Bild lässt sich nicht markieren (es kommt von einer anderen Seite).', noScreen: 'Kein Bildschirmfoto: ',
     },
   };
   const t = T[cfg.lang] || T.en;
@@ -286,22 +292,32 @@
     h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
     .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
     button { border: 1px solid #111; background: #fff; border-radius: 4px; padding: 6px 10px; cursor: pointer; }
-    button.send { background: #111; color: #fff; }
+    button.send, button.primary { background: #111; color: #fff; }
     button:disabled { opacity: .5; cursor: default; }
     .target { font: 12px/1.4 ui-monospace, monospace; color: #444; word-break: break-all; }
     select, textarea { width: 100%; border: 1px solid #888; border-radius: 4px; padding: 6px; background: #fff; }
     textarea { min-height: 80px; resize: vertical; margin-top: 6px; }
-    .counter { font-size: 12px; color: #666; text-align: right; }
+    .counter { font-size: 12px; color: #666; text-align: right; margin-left: auto; align-self: center; }
     .status { min-height: 1.4em; font-size: 13px; }
     .status a { color: #111; }
     .tab.dragging { cursor: grabbing; }
+    .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 2147483647; display: flex; flex-direction: column;
+      align-items: center; gap: 8px; padding: 8px; overflow: auto; }
+    .sheet .row { justify-content: center; margin: 0; }
+    .sheet canvas { background: #fff; touch-action: none; cursor: crosshair; max-width: 100%; }
+    .sheet button[aria-pressed="true"] { background: #111; color: #fff; }
+    .sheet .pins { width: min(600px, 100%); display: grid; gap: 4px; }
+    .sheet .pins label { display: flex; gap: 6px; align-items: center; color: #fff; }
+    .sheet .pins input { flex: 1; border: 1px solid #888; border-radius: 4px; padding: 4px 6px; background: #fff; color: #111; }
+    img.preview { display: block; max-width: 100%; max-height: 120px; border: 1px solid #888; margin-top: 6px; }
+    button.mic[aria-pressed="true"] { background: #d00; color: #fff; border-color: #d00; }
     .box { position: fixed; pointer-events: none; border: 2px solid #d00; background: rgba(221,0,0,.08); z-index: 2147483645; }
     .hint { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); background: #111; color: #fff; padding: 6px 10px;
       border-radius: 4px; z-index: 2147483647; }
     @media (prefers-color-scheme: dark) {
       * { color: #eee; }
       .panel, button, select, textarea { background: #1a1a1a; border-color: #ccc; }
-      button.send, .tab, .hint { background: #eee; color: #111; }
+      button.send, button.primary, .tab, .hint { background: #eee; color: #111; }
       .tab .count { color: #111; }
       .target, .counter { color: #aaa; }
       .status a { color: #eee; }
@@ -336,6 +352,7 @@
       picked = el;
       els.target.textContent = el ? cssPath(el) : t.whole;
       els.parent.disabled = !el || !el.parentElement || el.parentElement === document.documentElement;
+      if (els.markPic) els.markPic.hidden = !pickedImage();
       showBox(el);
     }
 
@@ -396,12 +413,167 @@
     }
     const toggle = () => (els.panel.hidden ? open() : close());
 
-    const clearForm = () => { els.text.value = ''; els.counter.textContent = '0 / 300'; };
+    // ---- drawing sheet: a picture with pen strokes and numbered pins ----
+    let mark = null; // { shot, pins } after "Done"
+    const sheet = { marks: [], tool: 'pen', img: null, canvas: null, ctx: null, drawing: null };
+
+    function lineWidth() { return Math.max(3, Math.round(Math.max(sheet.canvas.width, sheet.canvas.height) / 220)); }
+    function redraw() {
+      const { ctx, canvas } = sheet;
+      ctx.drawImage(sheet.img, 0, 0, canvas.width, canvas.height);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#e00'; ctx.lineWidth = lineWidth();
+      let nr = 0;
+      for (const m of sheet.marks) {
+        if (m.type === 'pen') {
+          ctx.beginPath();
+          m.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+          ctx.stroke();
+        } else {
+          nr++;
+          const r = lineWidth() * 3;
+          ctx.fillStyle = '#e00'; ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.round(r * 1.2)}px system-ui, sans-serif`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(nr), m.x, m.y);
+        }
+      }
+    }
+    function renderPins() {
+      els.pins.replaceChildren(...sheet.marks.filter((m) => m.type === 'pin').map((m, i) => {
+        const input = h('input', { type: 'text', maxlength: '120', placeholder: t.pinText, 'aria-label': `${i + 1}` });
+        input.value = m.text;
+        input.addEventListener('input', () => { m.text = input.value; });
+        return h('label', {}, `${i + 1}.`, input);
+      }));
+    }
+    function point(e) {
+      const r = sheet.canvas.getBoundingClientRect();
+      return [Math.round((e.clientX - r.left) * (sheet.canvas.width / r.width)), Math.round((e.clientY - r.top) * (sheet.canvas.height / r.height))];
+    }
+    function setTool(tool) {
+      sheet.tool = tool;
+      els.toolPen.setAttribute('aria-pressed', String(tool === 'pen'));
+      els.toolPin.setAttribute('aria-pressed', String(tool === 'pin'));
+    }
+    function openSheet(source) {
+      // The long side stays at most 2000 px, so the PNG stays well under the 8 MB limit.
+      const w = source.naturalWidth || source.videoWidth || source.width;
+      const hgt = source.naturalHeight || source.videoHeight || source.height;
+      const scale = Math.min(1, 2000 / Math.max(w, hgt));
+      const canvas = h('canvas', {});
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(hgt * scale));
+      // Show it as large as the screen allows, at least 2x a small picture.
+      const fit = Math.min((innerWidth - 16) / canvas.width, (innerHeight - 200) / canvas.height, Math.max(2, 1));
+      canvas.style.width = `${Math.round(canvas.width * fit)}px`;
+      canvas.style.height = `${Math.round(canvas.height * fit)}px`;
+      Object.assign(sheet, { marks: [], img: source, canvas, ctx: canvas.getContext('2d'), drawing: null });
+      canvas.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        const p = point(e);
+        if (sheet.tool === 'pin') { sheet.marks.push({ type: 'pin', x: p[0], y: p[1], text: '' }); renderPins(); redraw(); return; }
+        sheet.drawing = { type: 'pen', points: [p] };
+        sheet.marks.push(sheet.drawing);
+        canvas.setPointerCapture(e.pointerId);
+      });
+      canvas.addEventListener('pointermove', (e) => { if (sheet.drawing) { sheet.drawing.points.push(point(e)); redraw(); } });
+      const stop = () => { sheet.drawing = null; };
+      canvas.addEventListener('pointerup', stop);
+      canvas.addEventListener('pointercancel', stop);
+      els.canvasSlot.replaceChildren(canvas);
+      setTool('pen');
+      renderPins();
+      redraw();
+      els.panel.hidden = true;
+      els.box.hidden = true;
+      els.sheet.hidden = false;
+    }
+    function closeSheet() {
+      els.sheet.hidden = true;
+      els.panel.hidden = false;
+    }
+    function finishSheet() {
+      redraw();
+      const pins = sheet.marks.filter((m) => m.type === 'pin').map((m, i) => ({ nr: i + 1, text: m.text.trim() }));
+      mark = { shot: sheet.canvas.toDataURL('image/png'), pins };
+      els.preview.src = mark.shot;
+      els.previewRow.hidden = false;
+      closeSheet();
+    }
+    function forgetMark() {
+      mark = null;
+      els.preview.removeAttribute('src');
+      els.previewRow.hidden = true;
+    }
+    function pickedImage() {
+      if (!picked) return null;
+      return picked.localName === 'img' ? picked : picked.querySelector && picked.querySelector('img');
+    }
+    function markPicture() {
+      const src = pickedImage();
+      if (!src) return;
+      // Load it again with CORS. A picture from another site without CORS would taint the canvas.
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => openSheet(img);
+      img.onerror = () => { els.status.textContent = t.cannotMark; };
+      img.src = src.currentSrc || src.src;
+    }
+    const canCapture = () => !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && matchMedia('(pointer: fine)').matches;
+    async function markScreen() {
+      els.panel.hidden = true;
+      els.tab.hidden = true;
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, preferCurrentTab: true });
+        const video = document.createElement('video');
+        video.muted = true;
+        video.srcObject = stream;
+        await video.play();
+        await new Promise((r) => setTimeout(r, 250));
+        const c = document.createElement('canvas');
+        c.width = video.videoWidth; c.height = video.videoHeight;
+        c.getContext('2d').drawImage(video, 0, 0);
+        stream.getTracks().forEach((tr) => tr.stop());
+        els.tab.hidden = false;
+        openSheet(c);
+      } catch (e) {
+        els.tab.hidden = false;
+        els.panel.hidden = false;
+        els.status.textContent = t.noScreen + ((e && (e.message || e.name)) || 'cancelled');
+      }
+    }
+
+    // ---- voice input ----
+    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let listening = null;
+    function toggleMic() {
+      if (listening) { listening.stop(); return; }
+      const rec = new Speech();
+      rec.lang = cfg.lang === 'de' ? 'de-DE' : 'en-US';
+      rec.interimResults = false;
+      rec.continuous = true;
+      rec.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) {
+            const said = e.results[i][0].transcript.trim();
+            els.text.value = `${els.text.value} ${said}`.trim().slice(0, 300);
+            els.counter.textContent = `${els.text.value.length} / 300`;
+          }
+        }
+      };
+      rec.onend = () => { listening = null; els.mic.setAttribute('aria-pressed', 'false'); els.mic.textContent = t.mic; };
+      rec.onerror = (e) => { els.status.textContent = `${t.mic}: ${e.error}`; };
+      listening = rec;
+      els.mic.setAttribute('aria-pressed', 'true');
+      els.mic.textContent = t.micStop;
+      rec.start();
+    }
+
+    const clearForm = () => { els.text.value = ''; els.counter.textContent = '0 / 300'; forgetMark(); };
 
     async function submit() {
       const text = els.text.value.trim();
       if (!text) { els.status.textContent = t.writeFirst; return; }
-      const input = { kind: els.kind.value, text, from: 'human' };
+      const input = { kind: els.kind.value, text, from: 'human', ...(mark || {}) };
       if (DOWNLOAD) {
         downloadReport(input, picked);
         clearForm();
@@ -476,6 +648,24 @@
     els.text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); });
     els.send = h('button', { type: 'button', class: 'send', onclick: submit }, DOWNLOAD ? t.download : t.send);
     els.status = h('div', { class: 'status', role: 'status' });
+    els.markPic = h('button', { type: 'button', class: 'mark-pic', hidden: '', onclick: markPicture }, t.markPic);
+    els.markScreen = h('button', { type: 'button', class: 'mark-screen', onclick: markScreen }, t.markScreen);
+    els.markScreen.hidden = !canCapture();
+    els.mic = h('button', { type: 'button', class: 'mic', 'aria-pressed': 'false', onclick: toggleMic }, t.mic);
+    els.mic.hidden = !Speech;
+    els.preview = h('img', { class: 'preview', alt: '' });
+    els.previewRow = h('div', { hidden: '' }, els.preview, h('div', { class: 'row' }, h('button', { type: 'button', class: 'remove-pic', onclick: forgetMark }, t.removePic)));
+    els.toolPen = h('button', { type: 'button', class: 'tool-pen', onclick: () => setTool('pen') }, t.pen);
+    els.toolPin = h('button', { type: 'button', class: 'tool-pin', onclick: () => setTool('pin') }, t.pin);
+    els.canvasSlot = h('div', {});
+    els.pins = h('div', { class: 'pins' });
+    els.sheet = h('div', { class: 'sheet', hidden: '' },
+      h('div', { class: 'row' }, els.toolPen, els.toolPin,
+        h('button', { type: 'button', class: 'undo', onclick: () => { sheet.marks.pop(); renderPins(); redraw(); } }, t.undo),
+        h('button', { type: 'button', class: 'clear', onclick: () => { sheet.marks = []; renderPins(); redraw(); } }, t.clear),
+        h('button', { type: 'button', class: 'cancel', onclick: closeSheet }, t.cancel),
+        h('button', { type: 'button', class: 'done primary', onclick: finishSheet }, t.done)),
+      els.canvasSlot, els.pins);
     els.panel = h('div', { class: 'panel', hidden: '' },
       h('h2', {}, t.title),
       els.target,
@@ -483,12 +673,15 @@
         h('button', { type: 'button', class: 'pick', onclick: startPicking }, t.pick),
         els.parent,
         h('button', { type: 'button', class: 'whole', onclick: () => setTarget(null) }, t.whole)),
-      els.kind, els.text, els.counter,
+      h('div', { class: 'row' }, els.markPic, els.markScreen),
+      els.previewRow,
+      els.kind, els.text,
+      h('div', { class: 'row' }, els.mic, els.counter),
       h('div', { class: 'row' }, els.send, h('button', { type: 'button', class: 'close', onclick: close }, t.close)),
       els.status);
     els.box = h('div', { class: 'box', hidden: '' });
     els.hint = h('div', { class: 'hint', hidden: '' }, t.hint);
-    shadow.append(els.box, els.hint, els.tab, els.panel);
+    shadow.append(els.box, els.hint, els.tab, els.panel, els.sheet);
     document.documentElement.append(host);
     setTarget(null);
     els.box.hidden = true;

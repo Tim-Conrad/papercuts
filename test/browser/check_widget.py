@@ -89,6 +89,7 @@ def v2_base_checks(browser, ctl, page_url, width):
     host.locator("textarea").press("Control+Enter")
     page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')")
     check(f"{width}: Ctrl+Enter sends", len(issues(ctl)) == before + 1)
+    host.locator("button.close").click()
     page.click("#close-dlg")
     page.wait_for_function(f"{WIDGET}.parentElement === document.documentElement", timeout=3000)
     check(f"{width}: widget moves back after the dialog closes", True)
@@ -125,6 +126,68 @@ def v2_base_checks(browser, ctl, page_url, width):
     check(f"{width}: download mode sends nothing", len(issues(ctl)) == n_before)
     check(f"{width}: no page errors in v0.2 checks", not errors, "; ".join(errors))
     ctx.close()
+
+
+def sheet_checks(browser, ctl, page_url, width):
+    """Drawing sheet with pen and pins, screen capture and voice buttons."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    check(f"{width}: no mark button before a picture is picked", host.locator("button.mark-pic").is_hidden())
+    host.locator("button.pick").click()
+    page.locator("#pic").click()
+    check(f"{width}: mark button after picking a picture", host.locator("button.mark-pic").is_visible())
+    host.locator("button.mark-pic").click()
+    canvas = host.locator(".sheet canvas")
+    canvas.wait_for(state="visible", timeout=3000)
+    b = canvas.bounding_box()
+    def at(fx, fy):
+        return b["x"] + b["width"] * fx, b["y"] + b["height"] * fy
+    for y in (0.3, 0.6):
+        page.mouse.move(*at(0.2, y)); page.mouse.down(); page.mouse.move(*at(0.7, y), steps=6); page.mouse.up()
+    host.locator(".sheet button.tool-pin").click()
+    for fx in (0.3, 0.8):
+        page.mouse.click(*at(fx, 0.5))
+    pins = host.locator(".sheet .pins input")
+    check(f"{width}: two pins with text fields", pins.count() == 2, str(pins.count()))
+    host.locator(".sheet button.undo").click()
+    check(f"{width}: undo removes the last mark", pins.count() == 1, str(pins.count()))
+    page.mouse.click(*at(0.8, 0.5))
+    pins.nth(0).fill("too dark")
+    pins.nth(1).fill("cut off")
+    host.locator(".sheet button.done").click()
+    check(f"{width}: sheet closes and the panel shows the picture", host.locator(".sheet").is_hidden() and host.locator(".panel img.preview").is_visible())
+    host.locator("textarea").fill(f"marked picture {width}")
+    before = len(issues(ctl))
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    st = control(ctl, "/mode?m=ok")
+    body = st["issues"][-1]["body"] if len(st["issues"]) > before else ""
+    check(f"{width}: issue has the picture and the pins", "![papercut](" in body and "1. too dark" in body and "2. cut off" in body, body[:300])
+    check(f"{width}: uploaded file is a PNG", st["uploads"] and st["uploads"][-1] == "89504e470d0a1a0a", str(st["uploads"][-1:]))
+    check(f"{width}: panel forgets the picture after sending", host.locator(".panel img.preview").is_hidden())
+    if width > 800:
+        check(f"{width}: mark screen offered on desktop", host.locator("button.mark-screen").is_visible())
+    check(f"{width}: no page errors in sheet checks", not errors, "; ".join(errors))
+    ctx.close()
+
+    touch = browser.new_context(viewport={"width": width, "height": 860}, has_touch=True, is_mobile=width < 800)
+    page = touch.new_page()
+    page.add_init_script("delete window.SpeechRecognition; delete window.webkitSpeechRecognition;")
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    if width < 800:
+        check(f"{width}: mark screen hidden on touch", host.locator("button.mark-screen").is_hidden())
+    check(f"{width}: microphone hidden without speech API", host.locator("button.mic").is_hidden())
+    touch.close()
 
 
 def main():
@@ -204,6 +267,7 @@ def main():
 
             for width in (412, 1440):
                 v2_base_checks(browser, ctl, page_url, width)
+                sheet_checks(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})
