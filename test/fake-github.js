@@ -2,7 +2,7 @@
 import http from 'node:http';
 
 export async function fakeGithub({ token = 'test-token-123' } = {}) {
-  const state = { issues: {}, labels: {}, requests: [], fail: null, next: 1 };
+  const state = { issues: {}, labels: {}, requests: [], fail: null, next: 1, lag: false, hidden: new Set() };
   const repoOf = (owner, name) => {
     const key = `${owner}/${name}`;
     state.issues[key] ??= [];
@@ -34,7 +34,8 @@ export async function fakeGithub({ token = 'test-token-123' } = {}) {
       const label = url.searchParams.get('labels');
       const per = Number(url.searchParams.get('per_page') || 30);
       const page = Number(url.searchParams.get('page') || 1);
-      let items = list.filter((i) => (st === 'all' || i.state === st) && (!label || label.split(',').every((want) => i.labels.some((l) => l.name === want))));
+      // lag: like GitHub, a new issue is missing from lists for a few seconds, but a direct GET finds it.
+      let items = list.filter((i) => !state.hidden.has(i.number) && (st === 'all' || i.state === st) && (!label || label.split(',').every((want) => i.labels.some((l) => l.name === want))));
       items = [...items].sort((a, b) => b.number - a.number);
       return send(200, items.slice((page - 1) * per, page * per));
     }
@@ -43,6 +44,7 @@ export async function fakeGithub({ token = 'test-token-123' } = {}) {
       const n = state.next++;
       const issue = { number: n, title: body.title, body: body.body, state: 'open', labels: (body.labels || []).map((name) => ({ name })),
         html_url: `https://github.com/${key}/issues/${n}`, comments: 0, commentList: [], created_at: new Date().toISOString() };
+      if (state.lag) state.hidden.add(n);
       list.push(issue); return send(201, issue);
     }
     m = rest.match(/^\/issues\/(\d+)(\/comments)?$/);

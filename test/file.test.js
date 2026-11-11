@@ -46,6 +46,24 @@ test('agent repeat adds +1', async () => {
   assert.match(gh.state.issues['a/b'][0].commentList[0], /^\+1/);
 });
 
+test('agent repeat within seconds adds +1 although GitHub lists lag', async () => {
+  gh.state.lag = true;
+  const a = await fileReport(rep(), { client, target: PER });
+  const b = await fileReport(rep(), { client, target: PER });
+  assert.equal(gh.state.issues['a/b'].length, 1);
+  assert.equal(b.issue, a.issue);
+  assert.equal(b.deduped, true);
+});
+
+test('retry of the same id within seconds returns the first issue although GitHub lists lag', async () => {
+  gh.state.lag = true;
+  const report = rep({}, 'human');
+  const a = await fileReport(report, { client, target: PER });
+  const b = await fileReport(report, { client, target: PER });
+  assert.equal(b.issue, a.issue);
+  assert.equal(gh.state.issues['a/b'].length, 1);
+});
+
 test('human repeat opens new issue', async () => {
   await fileReport(rep({}, 'human'), { client, target: PER });
   await fileReport(rep({}, 'human'), { client, target: PER });
