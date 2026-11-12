@@ -103,8 +103,17 @@ export function initRepo(dir, repo, env = {}) {
 
   const agents = join(dir, 'AGENTS.md');
   const text = read(dir, 'AGENTS.md');
-  if (/^## Papercuts$/m.test(text)) out['AGENTS.md'] = 'has the papercuts block, not changed';
-  else {
+  // The block ends at the next level-2 heading. An older papercuts version wrote a shorter block: replace it.
+  const old = text.match(/^## Papercuts\n[\s\S]*?(?=^## |(?![\s\S]))/m);
+  if (old) {
+    const block = agentsBlock();
+    const tail = old.index + old[0].length < text.length ? '\n\n' : '\n';
+    if (old[0].replace(/\s+$/, '') === block) out['AGENTS.md'] = 'has the current papercuts block, not changed';
+    else {
+      writeFileSync(agents, text.slice(0, old.index) + block + tail + text.slice(old.index + old[0].length));
+      out['AGENTS.md'] = 'updated the papercuts block';
+    }
+  } else {
     writeFileSync(agents, (text ? `${text.replace(/\n*$/, '')}\n\n` : '# Agents\n\n') + agentsBlock() + '\n');
     out['AGENTS.md'] = text ? 'added the papercuts block' : 'created with the papercuts block';
   }

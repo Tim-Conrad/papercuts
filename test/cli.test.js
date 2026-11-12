@@ -424,7 +424,7 @@ test('init writes the starter config and the AGENTS block once, and names the st
   const again = await cli('init');
   assert.equal(again.code, 0);
   assert.match(again.out, /\.github\/papercuts\.json: exists, not changed/);
-  assert.match(again.out, /AGENTS\.md: has the papercuts block, not changed/);
+  assert.match(again.out, /AGENTS\.md: has the current papercuts block, not changed/);
   assert.equal((readFileSync(join(cwd, 'AGENTS.md'), 'utf8').match(/## Papercuts/g) || []).length, 1);
 });
 
@@ -496,4 +496,20 @@ test('init prints the FastAPI code that avoids the 304 trap', async () => {
   writeFileSync(join(cwd, 'requirements.txt'), 'fastapi\n');
   const r = await cli('init');
   assert.match(r.out, /HTMLResponse/);
+});
+
+test('init replaces an outdated papercuts block and keeps the rest of AGENTS.md (papercut #16)', async () => {
+  writeFileSync(join(cwd, 'AGENTS.md'), '# Agents\n\nIntro.\n\n## Papercuts\n\nOld text without the integration part.\n\n## Deploy\n\nRun deploy.\n');
+  const r = await cli('init');
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^AGENTS\.md: updated the papercuts block$/m);
+  const text = readFileSync(join(cwd, 'AGENTS.md'), 'utf8');
+  assert.ok(!text.includes('Old text'), text);
+  assert.ok(text.includes('### Integration'));
+  assert.match(text, /^Intro\.$/m);
+  assert.match(text, /## Deploy\n\nRun deploy\.\n$/);
+  assert.equal((text.match(/^## Papercuts$/gm) || []).length, 1);
+  const again = await cli('init');
+  assert.match(again.out, /^AGENTS\.md: has the current papercuts block, not changed$/m);
+  assert.equal(readFileSync(join(cwd, 'AGENTS.md'), 'utf8'), text);
 });
