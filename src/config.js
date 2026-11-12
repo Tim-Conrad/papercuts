@@ -53,7 +53,7 @@ export function loadConfig(env = process.env, file = {}, { store = 'github' } = 
   if (!['gh', 'file'].includes(source)) throw new Error(`PAPERCUTS_CREDENTIAL must be gh or file, not "${source}"`);
   if (source === 'file' && !tokenFile) throw new Error('the file credential needs PAPERCUTS_TOKEN_FILE');
   return {
-    origins: list(env.PAPERCUTS_ORIGINS || (local ? 'http://localhost:*,http://127.0.0.1:*' : 'https://*.lab.t7d.dev')),
+    origins: list(env.PAPERCUTS_ORIGINS || (local ? 'http://localhost,http://localhost:*,http://127.0.0.1,http://127.0.0.1:*' : 'https://*.lab.t7d.dev')),
     repos: list(env.PAPERCUTS_REPOS || (local ? '*/*' : 'Tim-Conrad/*')),
     store,
     target,

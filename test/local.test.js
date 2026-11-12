@@ -188,7 +188,7 @@ test('init --store local sets the store in an existing config and keeps the rest
 test('relay: with the local store, reports from the widget go to the file and show in the list', async () => {
   const db = join(cwd, '.papercuts', 'papercuts.db');
   const config = loadConfig({}, {}, { store: 'local' });
-  assert.deepEqual(config.origins, ['http://localhost:*', 'http://127.0.0.1:*']);
+  assert.ok(config.origins.includes('http://localhost:*'));
   const relay = createRelay(config, { client: localClient({ dbPath: db, root: cwd }) });
   await new Promise((r) => relay.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${relay.address().port}`;
@@ -217,4 +217,74 @@ test('CLI: comment adds a note to a local papercut, and the list counts it as a 
   const local = localClient({ dbPath: join(cwd, '.papercuts', 'papercuts.db'), root: cwd });
   assert.deepEqual((await local.comments('Tim-Conrad/shop', 1)).map((c) => c.body), ['Option A: keep rule 1. Option B: keep rule 2.']);
   assert.equal((await cli(['comment', '1', ''])).code, 2);
+});
+
+// Review findings (final review of the local store).
+test('review: the AGENTS block keeps a H1 after it, a user section under it, and code fences', async () => {
+  const user = '# Agents\n\n```md\n## Papercuts\nexample\n```\n\n## Papercuts\n\nReport friction with papercuts. Old.\n\n- old bullet\n\n### Local notes\n\nMine.\n\n# Appendix\n\nUser appendix.\n';
+  writeFileSync(join(cwd, 'AGENTS.md'), user);
+  await cli(['init']);
+  const text = readFileSync(join(cwd, 'AGENTS.md'), 'utf8');
+  for (const keep of ['```md\n## Papercuts\nexample\n```', '### Local notes\n\nMine.', '# Appendix\n\nUser appendix.']) assert.ok(text.includes(keep), keep);
+  assert.ok(!text.includes('old bullet'));
+  assert.ok(text.includes('<!-- papercuts:begin -->') && text.includes('### Integration'));
+  const again = await cli(['init']);
+  assert.match(again.out, /has the current papercuts block/);
+  assert.equal(readFileSync(join(cwd, 'AGENTS.md'), 'utf8'), text);
+});
+
+test('review: CRLF and a trailing space on the heading do not add a second block', async () => {
+  writeFileSync(join(cwd, 'AGENTS.md'), '# Agents\r\n\r\n## Papercuts \r\n\r\nReport friction with papercuts. Old.\r\n');
+  await cli(['init']);
+  const text = readFileSync(join(cwd, 'AGENTS.md'), 'utf8');
+  assert.equal((text.match(/^## Papercuts/gm) || []).length, 1);
+  assert.ok(!/[^\r]\n/.test(text), 'keeps CRLF');
+});
+
+test('review: init in a worktree ignores the database of the main checkout', async () => {
+  writeFileSync(join(cwd, '.gitignore'), '');
+  git(cwd, 'add', '.');
+  execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'x'], { cwd });
+  const wt = join(mkdtempSync(join(tmpdir(), 'pc-wt-')), 'wt');
+  git(cwd, 'worktree', 'add', '-q', wt);
+  await cli(['init', '--store', 'local'], { dir: wt });
+  await cli(['add', 'tool', 'from the worktree'], { dir: wt });
+  assert.equal(git(cwd, 'status', '--porcelain', '--untracked-files=all'), '');
+  assert.equal((await cli(['doctor'], { dir: wt })).code, 0);
+});
+
+test('review: init in a subfolder writes the config at the top of the checkout', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pc-sub-'));
+  git(dir, 'init', '-q');
+  mkdirSync(join(dir, 'sub'));
+  await cli(['init', '--store', 'local'], { dir: join(dir, 'sub') });
+  assert.ok(existsSync(join(dir, '.github', 'papercuts.json')));
+  assert.ok(!existsSync(join(dir, 'sub', '.github')));
+  const r = await cli(['add', 'tool', 'from a subfolder'], { dir: join(dir, 'sub') });
+  assert.equal(r.code, 0, r.out);
+});
+
+test('review: a remote added later does not hide local papercuts', async () => {
+  const dir = localRepo({ remote: false });
+  await cli(['add', 'tool', 'before the remote'], { dir });
+  git(dir, 'remote', 'add', 'origin', 'git@github.com:acme/widget.git');
+  const r = await cli(['list'], { dir });
+  assert.match(r.out, /before the remote/);
+  assert.match((await cli(['view', '1'], { dir })).out, /state: open/);
+});
+
+test('review: a database error is a local error that the relay can retry', async () => {
+  const local = localClient({ dbPath: join(cwd, '.papercuts', 'papercuts.db'), root: cwd });
+  const rep = normalizeReport({ kind: 'tool', text: 'x', repo: 'Tim-Conrad/shop' }, 'agent').report;
+  const { DatabaseSync } = await import('node:sqlite');
+  new DatabaseSync(join(cwd, '.papercuts', 'papercuts.db')).exec('DROP TABLE comments; DROP TABLE papercuts;');
+  const r = await fileReport(rep, { client: local, config: {} });
+  assert.equal(r.ok, false);
+  assert.equal(r.retry, true);
+  assert.match(r.error, /^local: /);
+});
+
+test('review: the local relay accepts localhost without a port', () => {
+  const { origins } = loadConfig({}, {}, { store: 'local' });
+  for (const o of ['http://localhost', 'http://localhost:5173', 'http://127.0.0.1:8000']) assert.ok(origins.some((g) => new RegExp(`^${g.replace(/[.]/g, '\\.').replace('*', '[^./:]+')}$`).test(o)), o);
 });

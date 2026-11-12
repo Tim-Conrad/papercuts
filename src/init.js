@@ -90,20 +90,59 @@ function agentsBlock() {
   return src.split('```markdown\n')[1].split('\n```')[0];
 }
 
+const BEGIN = '<!-- papercuts:begin -->';
+const END = '<!-- papercuts:end -->';
+// Lines of a papercuts block that an older version wrote without markers. Anything else is the user's text.
+const OLD_LINE = /^(\s*$|- |  |Report friction|### Integration\s*$)/;
+
+// Put the current block into AGENTS.md. Markers keep the block apart from the user's text.
+// A block without markers (papercuts 0.3 or older) ends at the first line that it never contained.
+export function placeBlock(text, block) {
+  const crlf = text.includes('\r\n');
+  const t = text.replace(/\r\n/g, '\n');
+  const marked = `${BEGIN}\n${block}\n${END}`;
+  const eol = (x) => (crlf ? x.replace(/\n/g, '\r\n') : x);
+  const b = t.indexOf(BEGIN);
+  const e = t.indexOf(END, b);
+  if (b >= 0 && e > b) {
+    if (t.slice(b, e + END.length) === marked) return { text, status: 'has the current papercuts block, not changed' };
+    return { text: eol(t.slice(0, b) + marked + t.slice(e + END.length)), status: 'updated the papercuts block' };
+  }
+  const lines = t.split('\n');
+  let fence = false;
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) fence = !fence;
+    else if (!fence && /^## Papercuts[ \t]*$/.test(lines[i])) { start = i; break; }
+  }
+  if (start < 0) {
+    const body = t ? `${t.replace(/\n*$/, '')}\n\n${marked}\n` : `# Agents\n\n${marked}\n`;
+    return { text: eol(body), status: t ? 'added the papercuts block' : 'created with the papercuts block' };
+  }
+  let end = start + 1;
+  for (let j = start + 1; j < lines.length && OLD_LINE.test(lines[j]); j++) if (lines[j].trim()) end = j + 1;
+  const rest = lines.slice(end).join('\n').replace(/^\n+/, '');
+  const out = [...lines.slice(0, start), marked].join('\n') + (rest ? `\n\n${rest}` : '\n');
+  return { text: eol(out), status: 'updated the papercuts block' };
+}
+
 const IGNORE = `${STORE_DIR}/`;
 
 // Add .papercuts/ to the .gitignore of the checkout. The database must never go into git.
-function ignoreStore(top) {
-  const file = join(top, '.gitignore');
-  const text = read(top, '.gitignore');
+function ignoreStore(top, name = '.gitignore') {
+  mkdirSync(top, { recursive: true });
+  const file = join(top, name);
+  const text = read(top, name);
   if (text.split('\n').some((l) => [IGNORE, STORE_DIR, `/${IGNORE}`, `/${STORE_DIR}`].includes(l.trim()))) return `has ${IGNORE}, not changed`;
   writeFileSync(file, (text && !text.endsWith('\n') ? `${text}\n` : text) + `${IGNORE}\n`);
   return text ? `added ${IGNORE}` : `created with ${IGNORE}`;
 }
 
-export function initRepo(dir, repo, env = {}, { store: wanted } = {}) {
+export function initRepo(cwd, repo, env = {}, { store: wanted } = {}) {
+  // The config, AGENTS.md and .gitignore belong at the top of the checkout, where storeFor reads them.
+  const { top: dir, main, common } = checkouts(cwd);
+  const top = dir;
   const stack = detectStack(dir);
-  const { top, main } = checkouts(dir);
   const cfgFile = join(dir, CONFIG_PATH);
   const store = wanted || readStoreSetting(dir) || 'github';
   if (!repo && store === 'local') repo = localRepoName(main);
@@ -127,24 +166,17 @@ export function initRepo(dir, repo, env = {}, { store: wanted } = {}) {
   out.store = store === 'local'
     ? `local: ${STORE_DIR}/${DB_NAME} in ${main === dir ? 'this checkout' : main}, gitignored, no GitHub`
     : `github: each papercut is an issue in ${repo || 'the repo'}`;
-  if (store === 'local') out['.gitignore'] = ignoreStore(top);
-
-  const agents = join(dir, 'AGENTS.md');
-  const text = read(dir, 'AGENTS.md');
-  // The block ends at the next level-2 heading. An older papercuts version wrote a shorter block: replace it.
-  const old = text.match(/^## Papercuts\n[\s\S]*?(?=^## |(?![\s\S]))/m);
-  if (old) {
-    const block = agentsBlock();
-    const tail = old.index + old[0].length < text.length ? '\n\n' : '\n';
-    if (old[0].replace(/\s+$/, '') === block) out['AGENTS.md'] = 'has the current papercuts block, not changed';
-    else {
-      writeFileSync(agents, text.slice(0, old.index) + block + tail + text.slice(old.index + old[0].length));
-      out['AGENTS.md'] = 'updated the papercuts block';
-    }
-  } else {
-    writeFileSync(agents, (text ? `${text.replace(/\n*$/, '')}\n\n` : '# Agents\n\n') + agentsBlock() + '\n');
-    out['AGENTS.md'] = text ? 'added the papercuts block' : 'created with the papercuts block';
+  if (store === 'local') {
+    out['.gitignore'] = ignoreStore(top);
+    // A worktree shares the database of the main checkout. info/exclude of the shared git folder covers every worktree.
+    if (main !== top && common) out['info/exclude'] = ignoreStore(join(common, 'info'), 'exclude');
   }
+
+  const agents = join(top, 'AGENTS.md');
+  const text = read(top, 'AGENTS.md');
+  const placed = placeBlock(text, agentsBlock());
+  if (placed.text !== text) writeFileSync(agents, placed.text);
+  out['AGENTS.md'] = placed.status;
 
   const name = repo || 'owner/name';
   out.tag = `<script src="$PAPERCUTS_URL/papercuts.js" data-repo="${name}"></script>`;

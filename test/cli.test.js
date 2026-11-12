@@ -499,7 +499,7 @@ test('init prints the FastAPI code that avoids the 304 trap', async () => {
 });
 
 test('init replaces an outdated papercuts block and keeps the rest of AGENTS.md (papercut #16)', async () => {
-  writeFileSync(join(cwd, 'AGENTS.md'), '# Agents\n\nIntro.\n\n## Papercuts\n\nOld text without the integration part.\n\n## Deploy\n\nRun deploy.\n');
+  writeFileSync(join(cwd, 'AGENTS.md'), '# Agents\n\nIntro.\n\n## Papercuts\n\nReport friction with papercuts. Old text without the integration part.\n\n## Deploy\n\nRun deploy.\n');
   const r = await cli('init');
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^AGENTS\.md: updated the papercuts block$/m);

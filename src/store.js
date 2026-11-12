@@ -27,7 +27,7 @@ export function checkouts(cwd) {
   const top = git(cwd, ['rev-parse', '--show-toplevel']);
   const common = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   const main = common && basename(common) === '.git' ? dirname(common) : top;
-  return { top: top || cwd, main: main || top || cwd, isGit: Boolean(top) };
+  return { top: top || cwd, main: main || top || cwd, common, isGit: Boolean(top) };
 }
 
 export function readStoreSetting(dir) {
@@ -91,6 +91,8 @@ function openDb(path) {
 const notFound = (what) => Object.assign(new GithubError(404, `no ${what} in the local store`), { source: 'local' });
 const SHOT = /^[A-Za-z0-9_.-]{1,80}\.png$/;
 
+// One checkout has one database. The rows keep the repo name of the report, but no query filters by it,
+// so a remote added later or a widget tag with another name never hides a papercut.
 export function localClient({ dbPath, root }) {
   const db = openDb(dbPath);
   const shotsDir = join(dirname(dbPath), 'shots');
@@ -114,20 +116,20 @@ export function localClient({ dbPath, root }) {
     return rows.filter((r) => { const names = JSON.parse(r.labels); return want.every((w) => names.includes(w)); }).map(toIssue);
   };
   const row = (repo, n) => {
-    const r = db.prepare('SELECT * FROM papercuts WHERE repo = ? AND number = ?').get(repo, n);
-    if (!r) throw notFound(`papercut #${n} of ${repo}`);
+    const r = db.prepare('SELECT * FROM papercuts WHERE number = ?').get(n);
+    if (!r) throw notFound(`papercut #${n}`);
     return r;
   };
   const addComment = (n, body) => db.prepare('INSERT INTO comments (papercut, body, created_at) VALUES (?, ?, ?)').run(n, body, now());
 
-  return {
+  const api = {
     kind: 'local',
     dbPath,
     user: async () => ({ login: (() => { try { return userInfo().username; } catch { return 'local'; } })() }),
     repo: async (repo) => ({ full_name: repo, permissions: { push: true } }),
-    listOpen: async (repo, label) => withLabels(db.prepare("SELECT * FROM papercuts WHERE repo = ? AND state = 'open' ORDER BY number DESC").all(repo), label),
-    listClosedSince: async (repo, label, since) => withLabels(db.prepare("SELECT * FROM papercuts WHERE repo = ? AND state = 'closed' AND closed_at >= ? ORDER BY closed_at DESC LIMIT 100").all(repo, since), label),
-    listRecent: async (repo, label, n = 100) => withLabels(db.prepare('SELECT * FROM papercuts WHERE repo = ? ORDER BY number DESC LIMIT ?').all(repo, n), label),
+    listOpen: async (repo, label) => withLabels(db.prepare("SELECT * FROM papercuts WHERE state = 'open' ORDER BY number DESC").all(), label),
+    listClosedSince: async (repo, label, since) => withLabels(db.prepare("SELECT * FROM papercuts WHERE state = 'closed' AND closed_at >= ? ORDER BY closed_at DESC LIMIT 100").all(since), label),
+    listRecent: async (repo, label, n = 100) => withLabels(db.prepare('SELECT * FROM papercuts ORDER BY number DESC LIMIT ?').all(n), label),
     getIssue: async (repo, n) => toIssue(row(repo, n)),
     comments: async (repo, n) => {
       row(repo, n);
@@ -166,4 +168,14 @@ export function localClient({ dbPath, root }) {
       try { return readFileSync(file); } catch { throw notFound(`picture ${basename(file)}`); }
     },
   };
+  for (const [name, fn] of Object.entries(api)) {
+    if (typeof fn !== 'function') continue;
+    api[name] = async (...args) => {
+      try { return await fn(...args); } catch (e) {
+        if (e instanceof GithubError) throw e;
+        throw Object.assign(new GithubError(0, `database error: ${e.message}`), { source: 'local' });
+      }
+    };
+  }
+  return api;
 }
