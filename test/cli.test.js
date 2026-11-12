@@ -523,3 +523,13 @@ test('comment adds a comment to the issue, with secrets redacted', async () => {
   assert.match(body, /^Option A or B/);
   assert.ok(!body.includes('ghp_abcdefghij'), body);
 });
+
+test('init finds FastAPI in app/ and prints the Jinja template code for server-rendered pages (papercut #19)', async () => {
+  mkdirSync(join(cwd, 'app', 'templates'), { recursive: true });
+  writeFileSync(join(cwd, 'app', 'requirements.txt'), 'fastapi\njinja2\n');
+  writeFileSync(join(cwd, 'app', 'templates', 'base.html'), '<html><head></head></html>');
+  const r = await cli('init');
+  assert.match(r.out, /^stack: fastapi-jinja$/m);
+  assert.match(r.out, /\{% if papercuts_url\(\) %\}<script src="\{\{ papercuts_url\(\) \}\}\/papercuts\.js" data-repo="Tim-Conrad\/shop"><\/script>\{% endif %\}/);
+  assert.match(r.out, /base\.html/);
+});

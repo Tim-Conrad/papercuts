@@ -11,8 +11,11 @@ const SCHEMA_URL = 'https://raw.githubusercontent.com/Tim-Conrad/papercuts/main/
 const read = (dir, f) => { try { return readFileSync(join(dir, f), 'utf8'); } catch { return ''; } };
 
 export function detectStack(dir) {
-  const py = read(dir, 'requirements.txt') + read(dir, 'pyproject.toml') + read(dir, 'backend/pyproject.toml') + read(dir, 'backend/requirements.txt');
-  if (/fastapi/i.test(py)) return 'fastapi';
+  const pyDirs = ['', 'backend/', 'app/', 'server/', 'api/'];
+  const py = pyDirs.map((d) => read(dir, `${d}requirements.txt`) + read(dir, `${d}pyproject.toml`)).join('');
+  // Server-rendered pages: the tag goes into the base template, so that every page gets it.
+  const templates = ['templates', 'app/templates', 'backend/templates', 'src/templates'].some((d) => existsSync(join(dir, d)));
+  if (/fastapi/i.test(py)) return /jinja2/i.test(py) || templates ? 'fastapi-jinja' : 'fastapi';
   const pkg = read(dir, 'package.json') + read(dir, 'frontend/package.json') + read(dir, 'web/package.json');
   if (/"vite"/.test(pkg)) return 'vite';
   if (/"express"/.test(pkg)) return 'express';
@@ -34,6 +37,13 @@ def index():
     if url := os.environ.get("PAPERCUTS_URL"):
         html = html.replace("</head>", f'<script src="{url}/papercuts.js" data-repo="REPO"></script></head>', 1)
     return HTMLResponse(html, headers={"Cache-Control": "no-cache"})`,
+  'fastapi-jinja': `import os
+
+# In the code that creates the Jinja2Templates (read per request, so a restart is not needed):
+templates.env.globals["papercuts_url"] = lambda: os.environ.get("PAPERCUTS_URL", "")
+
+{# In the base template (for example templates/base.html), inside <head>: #}
+{% if papercuts_url() %}<script src="{{ papercuts_url() }}/papercuts.js" data-repo="REPO"></script>{% endif %}`,
   express: `app.get('/', (req, res) => {
   let html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const url = process.env.PAPERCUTS_URL;
@@ -55,6 +65,10 @@ const STEPS = {
   fastapi: [
     'Serve index.html yourself when PAPERCUTS_URL is set: read the file and add the tag before </head>. Do not use FileResponse for it: its 304 keeps a cached copy without the tag.',
     'Leave every other file to StaticFiles.',
+  ],
+  'fastapi-jinja': [
+    'Add the tag to the base template that every page extends, inside {% if papercuts_url() %} ... {% endif %}, so that every page gets it.',
+    'Send Cache-Control: no-cache for the HTML pages.',
   ],
   vite: [
     'Add the tag when the server delivers index.html, not in the Vite build, so that one build works with and without papercuts.',
