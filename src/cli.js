@@ -426,7 +426,7 @@ export async function run(argv, ctx = {}) {
       if (!norm.ok) throw runError(norm.error, norm.help);
       const client = makeClient();
       const repoCfg = (await loadRepoConfig(client, norm.report.repo)).config;
-      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from);
+      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from, norm.report.kind);
       if (!fields.ok) throw runError(fields.error, fields.help);
       norm.report.fields = fields.fields;
       const r = await fileReport(norm.report, { client, target, config: repoCfg });
@@ -464,7 +464,7 @@ export async function run(argv, ctx = {}) {
       const norm = normalizeReport({ kind: args[0], text: args[1], where: flags.where, repo }, 'agent');
       if (!norm.ok) throw runError(norm.error, norm.help);
       const repoCfg = (await loadRepoConfig(client, repo)).config;
-      const fields = normalizeFields(raw, repoCfg);
+      const fields = normalizeFields(raw, repoCfg, 'agent', norm.report.kind);
       if (!fields.ok) throw runError(fields.error, fields.help);
       norm.report.fields = fields.fields;
       const r = await fileReport(norm.report, { client, target, config: repoCfg });

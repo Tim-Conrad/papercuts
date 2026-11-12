@@ -609,6 +609,20 @@ def mark_checks(browser, ctl, page_url, width):
     page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
     body = issues(ctl)[-1]["body"]
     check(f"{width}: papercutsContext gets the first marked element", "about: buy" in body, body[:600])
+    # The keyboard alternative: Tab to a page element, Enter marks it instead of pressing it.
+    host.locator("button.another").click()
+    host.locator("button.pick").click()
+    host.locator(".marktools button.tool-tap").click()
+    page.evaluate("window.__buyClicks = 0; document.getElementById('buy').addEventListener('click', () => window.__buyClicks++)")
+    check(f"{width}: mark mode tells keyboard users how to mark", "enter" in host.locator(".marktools .tip").inner_text().lower(), host.locator(".marktools .tip").inner_text())
+    page.focus("#buy")
+    page.keyboard.press("Enter")
+    check(f"{width}: Enter marks the focused element and does not press it", frames(page) == 1 and page.evaluate("window.__buyClicks") == 0, f"{frames(page)} {page.evaluate('window.__buyClicks')}")
+    page.keyboard.press(" ")
+    check(f"{width}: Space on a marked element removes the mark", frames(page) == 0)
+    page.keyboard.press("Enter")
+    page.keyboard.press("Escape")
+    check(f"{width}: the keyboard mark is in the panel", "buy" in host.locator(".marklist").inner_text().lower(), host.locator(".marklist").inner_text())
     check(f"{width}: no page errors in mark checks", not errors, "; ".join(errors))
     ctx.close()
 

@@ -61,6 +61,11 @@ export function checkConfig(raw) {
         if (!opts.length) { warn(`fields: "${id}" options must be a list of texts`); continue; }
         field.options = [...new Set(opts)].slice(0, LIMITS.options);
       }
+      if (f.kinds !== undefined) {
+        const ks = Array.isArray(f.kinds) ? f.kinds : [];
+        if (!ks.length || ks.some((k) => !KINDS.includes(k))) { warn(`fields: "${id}" kinds must be a list of ${KINDS.join(', ')}`); continue; }
+        field.kinds = [...new Set(ks)];
+      }
       seen.add(id);
       config.fields.push(field);
     }
@@ -119,7 +124,8 @@ export function checkConfig(raw) {
 
 // Check the field values of one report against the config of its repo.
 // Fields are for agents: a person only gives feedback, so a required field never blocks a person.
-export function normalizeFields(input, config, from = 'agent') {
+// A field with `kinds` belongs to those kinds only: required there, refused for the others.
+export function normalizeFields(input, config, from = 'agent', kind = '') {
   const fields = config.fields || [];
   const values = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
   const ids = fields.map((f) => f.id);
@@ -128,6 +134,7 @@ export function normalizeFields(input, config, from = 'agent') {
   for (const [k, v] of Object.entries(values)) {
     const field = fields.find((f) => f.id === k);
     if (!field) return { ok: false, error: `unknown field "${k}"`, help };
+    if (field.kinds && kind && !field.kinds.includes(kind)) return { ok: false, error: `field "${k}" is only for kinds: ${field.kinds.join(', ')}`, help };
     const text = shorten(redact(String(v ?? '').replace(/\s+/g, ' ').trim()), LIMITS.text);
     if (!text) continue;
     if (field.options && !field.options.includes(text)) {
@@ -136,7 +143,7 @@ export function normalizeFields(input, config, from = 'agent') {
     out[k] = text;
   }
   for (const f of fields) {
-    if (from === 'agent' && f.required && !out[f.id]) return { ok: false, error: `field "${f.id}" is required (${f.label})`, help };
+    if (from === 'agent' && f.required && !out[f.id] && (!f.kinds || !kind || f.kinds.includes(kind))) return { ok: false, error: `field "${f.id}" is required (${f.label})`, help };
   }
   return { ok: true, fields: out };
 }

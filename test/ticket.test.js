@@ -96,3 +96,16 @@ test('fields: a person is never blocked by a required field, agents fill them', 
   assert.deepEqual(r.fields, {});
   assert.equal(normalizeFields({}, CFG, 'agent').ok, false);
 });
+
+test('a field can apply to some kinds only: required only there, refused elsewhere', () => {
+  const { config, warnings } = checkConfig({ fields: [{ id: 'steps', label: 'Steps to reproduce', required: true, kinds: ['bug'] }, { id: 'x', label: 'X', kinds: ['nope'] }] });
+  assert.deepEqual(config.fields[0].kinds, ['bug']);
+  assert.match(warnings.join(), /fields: "x" kinds/);
+  assert.equal(config.fields.length, 1);
+  assert.equal(normalizeFields({}, config, 'agent', 'bug').ok, false);
+  assert.equal(normalizeFields({}, config, 'agent', 'tool').ok, true);
+  const wrong = normalizeFields({ steps: '1. open' }, config, 'agent', 'idea');
+  assert.equal(wrong.ok, false);
+  assert.match(wrong.error, /only for kinds: bug/);
+  assert.deepEqual(normalizeFields({ steps: '1. open' }, config, 'agent', 'bug').fields, { steps: '1. open' });
+});

@@ -122,7 +122,7 @@ export function createRelay(config, { client }) {
       try { repoCfg = (await repoConfig(norm.report.repo)).config; } catch (e) {
         return send(502, { ok: false, retry: true, error: `github: ${e.status ?? 0} ${e.message}`, help: 'the report waits and goes out later' });
       }
-      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from);
+      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from, norm.report.kind);
       if (!fields.ok) return send(400, { ...fields, retry: false });
       norm.report.fields = fields.fields;
       const result = await fileOnce(norm.report, repoCfg);

@@ -138,7 +138,7 @@ With `?papercuts=download` in the URL, or `data-mode="download"`, the widget sho
 | Key | Use |
 | --- | --- |
 | `kinds` | The kinds that agents use in this repo. Use the built-in kinds only, so that labels stay the same in all repos. |
-| `fields` | At most 8 extra fields for agents. A field with `options` is a choice, else one line of text. A required field is required for agent reports. People never see the fields. `open({ fields })` can fill them for a person. |
+| `fields` | At most 8 extra fields for agents. A field with `options` is a choice, else one line of text. A required field is required for agent reports. A field with `kinds` belongs to those kinds only, for example `{ "id": "severity", "label": "Severity", "options": ["low", "high"], "kinds": ["bug"] }`. People never see the fields. `open({ fields })` can fill them for a person. |
 | `presets` | At most 12 quick phrases for the widget. One tap fills the sentence and, silently, the kind. |
 | `labels`, `labelsByKind`, `assignees` | Added to each new issue. |
 | `context` | The `localStorage` keys to include, the same as `data-storage` and `data-storage-skip`. |
