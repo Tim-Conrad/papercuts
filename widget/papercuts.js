@@ -25,7 +25,7 @@
   // A missing word falls back to English.
   const T = {
     en: {
-      tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Point at something', parent: 'Parent', child: 'Smaller',
+      tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Mark', parent: 'Larger', child: 'Smaller',
       whole: 'Whole view', wholeSub: 'The part of the page that you see', kind: 'Kind', placeholder: 'What is wrong? One sentence is enough.', send: 'Send', download: 'Download report',
       close: 'Close', sending: 'Sending…', sent: 'Sent: ', writeFirst: 'Write one sentence first.',
       saved: 'Saved in this browser. It goes out later.', savedLogin: 'Saved in this browser. Log in again, then it goes out.',
@@ -38,13 +38,16 @@
       list: (n) => `${n} open`, back: 'New papercut', pickedSub: 'Picked element', pins: (n) => `${n} ${n === 1 ? 'pin' : 'pins'}`, picture: 'Marked picture', cancelPick: 'Cancel', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`, empty: 'No open papercuts.', age: (d) => (d < 1 ? 'today' : `${d} d ago`),
       fixed: 'Fixed', required: 'required', fieldRequired: (l) => `Fill in “${l}”, it is required.`, speak: 'Tap to speak', listening: 'Listening… tap to stop', typeInstead: 'or type below',
+      toolTap: 'Tap', toolBox: 'Box', toolDraw: 'Draw', markDone: 'Done', note: 'Note (optional)', region: (w, h) => `Region ${w}×${h}`,
+      hintTap: 'Tap the parts you mean. Tap again to remove.', hintBox: 'Drag a box around a region.', hintDraw: 'Tap a picture to draw on it.',
+      removeMark: (n) => `Remove mark ${n}`,
       another: 'Report another', thanks: 'Thank you. Sent as ', twoFingers: 'Hold two fingers', copyLink: 'Copy link', copied: 'Link copied',
       loginFirst: 'Log in to report. Open the login page, then come back: ', loginLink: 'log in',
       micBlocked: 'Microphone blocked. Allow it in the browser settings, or type instead.', noSpeech: 'I heard nothing. Tap and speak again, or type instead.',
       micNetwork: 'Speech input needs a network connection. Type instead.', micFailed: 'Speech input failed. Type instead.', pinLabel: (n) => `Pin ${n}: what is here?`,
     },
     de: {
-      tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Auf etwas zeigen', parent: 'Größer', child: 'Kleiner',
+      tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Markieren', parent: 'Größer', child: 'Kleiner',
       whole: 'Ganze Ansicht', wholeSub: 'Der Teil der Seite, den du siehst', kind: 'Art', placeholder: 'Was stimmt nicht? Ein Satz reicht.', send: 'Senden', download: 'Als Datei speichern',
       close: 'Schließen', sending: 'Sende…', sent: 'Gesendet: ', writeFirst: 'Schreib zuerst einen Satz.',
       saved: 'Im Browser gespeichert. Geht später raus.', savedLogin: 'Im Browser gespeichert. Melde dich neu an, dann geht es raus.',
@@ -57,6 +60,9 @@
       list: (n) => `${n} offen`, back: 'Neuer Papercut', pickedSub: 'Gewähltes Element', pins: (n) => `${n} ${n === 1 ? 'Nummer' : 'Nummern'}`, picture: 'Markiertes Bild', cancelPick: 'Abbrechen', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'Antwort' : 'Antworten'}`, empty: 'Keine offenen Papercuts.', age: (d) => (d < 1 ? 'heute' : `vor ${d} T.`),
       fixed: 'Behoben', required: 'Pflicht', fieldRequired: (l) => `Fülle „${l}“ aus, das ist Pflicht.`, speak: 'Tippen und sprechen', listening: 'Ich höre zu… tippen zum Beenden', typeInstead: 'oder unten tippen',
+      toolTap: 'Tippen', toolBox: 'Rahmen', toolDraw: 'Zeichnen', markDone: 'Fertig', note: 'Notiz (optional)', region: (w, h) => `Bereich ${w}×${h}`,
+      hintTap: 'Tippe auf die Stellen. Noch einmal tippen entfernt sie.', hintBox: 'Ziehe einen Rahmen um einen Bereich.', hintDraw: 'Tippe auf ein Bild, um darauf zu zeichnen.',
+      removeMark: (n) => `Markierung ${n} entfernen`,
       another: 'Noch einen melden', thanks: 'Danke. Gesendet als ', twoFingers: 'Mit zwei Fingern halten', copyLink: 'Link kopieren', copied: 'Link kopiert',
       loginFirst: 'Zum Melden anmelden. Öffne die Login-Seite und komm zurück: ', loginLink: 'anmelden',
       micBlocked: 'Mikrofon blockiert. Erlaube es in den Browser-Einstellungen oder tippe.', noSpeech: 'Ich habe nichts gehört. Tippe und sprich noch einmal oder tippe.',
@@ -270,7 +276,7 @@
   }
 
   function buildPayload(input, el) {
-    return redactDeep({
+    const payload = redactDeep({
       from: input.from === 'human' ? 'human' : 'agent',
       report: {
         id: input.id || newId(),
@@ -282,8 +288,12 @@
         ...(input.shot ? { shot: input.shot } : {}),
         ...(input.pins ? { pins: input.pins } : {}),
         ...(input.fields && typeof input.fields === 'object' ? { fields: input.fields } : {}),
+        ...(Array.isArray(input.marks) ? { marks: input.marks } : {}),
       },
     });
+    // Where each mark is, for papercuts replay.
+    if (Array.isArray(input.placeMarks) && payload.report.context.place) payload.report.context.place.marks = input.placeMarks;
+    return payload;
   }
 
   function downloadReport(input, el) {
@@ -504,6 +514,39 @@
     .items .goto:hover { background: var(--pc-hover); color: var(--pc-ink); }
     .items .empty { border-style: dashed; text-align: center; color: var(--pc-muted); padding: 22px 12px; }
 
+    /* marks: numbered frames on the page, the mark toolbar, the list in the panel */
+    .marklayer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483644; }
+    .mframe { position: fixed; border: 2px solid var(--pc-accent); border-radius: 6px; background: color-mix(in srgb, var(--pc-accent) 7%, transparent); }
+    .mframe.box { border-style: dashed; }
+    .mbadge { position: absolute; left: -11px; top: -11px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--pc-accent);
+      font: 700 12px/22px var(--pc-font); text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+    .mbadge, .mbadge * { color: var(--pc-on-accent); }
+    .boxcatch { position: fixed; inset: 0; z-index: 2147483645; cursor: crosshair; touch-action: none; }
+    .marktools { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 2147483647; display: grid; justify-items: center; gap: 6px; animation: pc-fade .2s; max-width: calc(100vw - 16px); }
+    .marktools .bar { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px; padding: 6px; border-radius: 16px; background: var(--pc-bg); box-shadow: var(--pc-shadow); }
+    .marktools .tip { order: -1; padding: 5px 12px; border-radius: 999px; background: var(--pc-ink); font-size: 12.5px; font-weight: 560; box-shadow: var(--pc-shadow); }
+    .marktools .tip, .marktools .tip * { color: var(--pc-bg); }
+    .marktools .tool .bubble { margin-left: 2px; }
+    .marktools .tool:disabled { opacity: .35; }
+    @media (max-width: 520px) {
+      .marktools .tool[aria-pressed="false"] span:not(.ico):not(.bubble) { display: none; }
+      .marktools .sep { display: none; }
+      .marktools .done span:not(.ico):not(.bubble) { display: none; }
+    }
+    .marktools .bar { flex-wrap: nowrap; }
+    .marklist .addnote { color: var(--pc-muted); }
+    .marktools .tool.primary .bubble { background: var(--pc-on-accent); color: var(--pc-accent); }
+    .marklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    .marklist li { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px; border-radius: 12px; background: var(--pc-surface); }
+    .marklist .num { flex: none; width: 22px; height: 22px; border-radius: 999px; background: var(--pc-accent); font: 700 12px/22px var(--pc-font); text-align: center; }
+    .marklist .num { color: var(--pc-on-accent); }
+    .marklist .what { flex: 1 1 40%; min-width: 0; display: grid; }
+    .marklist .what b { font: 500 12.5px/1.3 var(--pc-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .marklist .what span { font-size: 12px; color: var(--pc-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .marklist input { flex: 1 1 45%; min-width: 0; height: 32px; border: 1px solid var(--pc-line); border-radius: 9px; padding: 0 10px; background: var(--pc-bg); font-size: 13px; outline: 0; }
+    .marklist input:focus { border-color: color-mix(in srgb, var(--pc-ink) 38%, transparent); }
+    @media (max-width: 420px) { .marklist li { flex-wrap: wrap; } .marklist input { flex-basis: 100%; order: 3; } }
+
     /* picking */
     .box { position: fixed; pointer-events: none; z-index: 2147483645; border: 2px solid var(--pc-accent); border-radius: 6px;
       background: color-mix(in srgb, var(--pc-accent) 9%, transparent); transition: left .07s, top .07s, width .07s, height .07s; }
@@ -612,8 +655,11 @@
 
   function createUi() {
     const els = {};
-    let picked = null;
+    // The marks: elements and regions of the page, numbered in this order.
+    let marks = [];
+    let tool = 'tap';
     let picking = false;
+    const firstElement = () => (marks.find((m) => m.type === 'element') || {}).el || null;
     let host;
 
     function h(tag, props = {}, ...kids) {
@@ -646,27 +692,85 @@
       els.box.hidden = false;
     }
 
-    // Parent goes one element up, Smaller goes back down the same way.
-    let chain = [];
-    function setTarget(el, keepChain) {
-      if (!keepChain) chain = [];
-      picked = el;
-      const text = el ? textOf(el) : '';
-      els.targetName.textContent = el ? nameOf(el) : t.whole;
-      els.targetName.classList.toggle('el', !!el);
-      els.targetSub.textContent = el ? (text ? `“${text.slice(0, 60)}${text.length > 60 ? '…' : ''}”` : t.pickedSub) : t.wholeSub;
-      els.target.title = el ? cssPath(el) : '';
-      els.parent.hidden = els.child.hidden = els.whole.hidden = !el;
-      if (els.where) els.where.hidden = !el;
-      els.parent.disabled = !el || !el.parentElement || el.parentElement === document.documentElement || el.parentElement === document.body;
-      els.child.disabled = !chain.length;
-      if (els.markPic) els.markPic.hidden = !pickedImage();
-      showBox(el);
+    function markLabel(m) {
+      if (m.type === 'box') return { name: t.region(Math.round(m.rect.w), Math.round(m.rect.h)), text: '' };
+      const text = textOf(m.el);
+      return { name: nameOf(m.el), text: text ? `“${text.slice(0, 60)}${text.length > 60 ? '…' : ''}”` : '' };
     }
+    function clientRect(m) {
+      if (m.type === 'box') return { x: m.rect.x - scrollX, y: m.rect.y - scrollY, w: m.rect.w, h: m.rect.h };
+      const r = m.el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    }
+    // Frames and numbers on the page, in viewport coordinates, redrawn on scroll and resize.
+    function drawFrames() {
+      const show = marks.length && (!els.panel.hidden || picking);
+      els.marklayer.hidden = !show;
+      if (!show) { els.marklayer.replaceChildren(); return; }
+      els.marklayer.replaceChildren(...marks.filter((m) => m.type === 'box' || m.el.isConnected).map((m) => {
+        const r = clientRect(m);
+        const f = h('div', { class: `mframe ${m.type}` }, h('span', { class: 'mbadge' }, String(marks.indexOf(m) + 1)));
+        Object.assign(f.style, { left: `${r.x - 3}px`, top: `${r.y - 3}px`, width: `${r.w + 6}px`, height: `${r.h + 6}px` });
+        return f;
+      }));
+    }
+    let frameQueued = false;
+    const queueFrames = () => { if (!frameQueued) { frameQueued = true; requestAnimationFrame(() => { frameQueued = false; drawFrames(); }); } };
+    addEventListener('scroll', queueFrames, { passive: true, capture: true });
+    addEventListener('resize', queueFrames);
+
+    function renderMarks() {
+      els.where.hidden = !marks.length;
+      els.marklist.replaceChildren(...marks.map((m, i) => {
+        const { name, text } = markLabel(m);
+        // The note field opens on demand, so that a list of marks stays short on a phone.
+        const note = h('input', { type: 'text', maxlength: '200', placeholder: t.note, 'aria-label': `${t.note} ${i + 1}` });
+        note.value = m.note || '';
+        note.hidden = !m.note && !m.noteOpen;
+        note.addEventListener('input', () => { m.note = note.value; });
+        const add = iconBtn('addnote mini', 'pen', t.note, () => { m.noteOpen = true; note.hidden = false; add.hidden = true; note.focus(); });
+        add.hidden = !note.hidden;
+        return h('li', { 'data-mark': String(i + 1), title: m.type === 'element' ? cssPath(m.el) : '' },
+          h('span', { class: 'num' }, String(i + 1)),
+          h('div', { class: 'what' }, h('b', {}, name), ...(text ? [h('span', {}, text)] : [])),
+          note, add,
+          iconBtn('remove-mark mini', 'x', t.removeMark(i + 1), () => { marks.splice(i, 1); renderMarks(); }));
+      }));
+      const last = marks[marks.length - 1];
+      const el = last && last.type === 'element' ? last.el : null;
+      els.parent.disabled = !el || !el.parentElement || el.parentElement === document.documentElement || el.parentElement === document.body;
+      els.child.disabled = !(last && last.chain && last.chain.length);
+      // Larger and Smaller show only when the newest mark is an element.
+      els.parent.hidden = els.child.hidden = !el;
+      els.markCount.textContent = marks.length ? String(marks.length) : '';
+      els.markPic.hidden = !marks.some((m) => m.type === 'element' && imageIn(m.el));
+      drawFrames();
+    }
+    function toggleElement(el) {
+      const i = marks.findIndex((m) => m.type === 'element' && m.el === el);
+      if (i >= 0) marks.splice(i, 1);
+      else if (marks.length < 10) marks.push({ type: 'element', el, note: '', chain: [] });
+      renderMarks();
+    }
+    // Larger and Smaller move the newest element mark up to its parent and back down.
+    function larger() {
+      const m = marks[marks.length - 1];
+      if (!m || m.type !== 'element' || !m.el.parentElement) return;
+      m.chain.push(m.el);
+      m.el = m.el.parentElement;
+      renderMarks();
+    }
+    function smaller() {
+      const m = marks[marks.length - 1];
+      if (!m || !m.chain || !m.chain.length) return;
+      m.el = m.chain.pop();
+      renderMarks();
+    }
+    function clearMarks() { marks = []; renderMarks(); }
 
     const pointAt = (e) => {
       const el = document.elementFromPoint(e.clientX, e.clientY);
-      return el && el !== host ? el : null;
+      return el && el !== host && el !== document.documentElement && el !== document.body ? el : null;
     };
     const onMove = (e) => { const el = pointAt(e); if (el) showBox(el); };
     const onPick = (e) => {
@@ -674,30 +778,72 @@
       if (!el) return;
       e.preventDefault();
       e.stopPropagation();
-      stopPicking();
-      setTarget(el);
+      if (tool === 'draw') {
+        const img = imageIn(el);
+        if (!img) { els.markTip.textContent = t.hintDraw; return; }
+        stopPicking();
+        markPicture(img);
+        return;
+      }
+      toggleElement(el);
+      showBox(el);
     };
     const swallow = (e) => { if (e.target !== host) { e.preventDefault(); e.stopPropagation(); } };
-    // Inside a modal dialog, Esc is also a close request for the dialog. It must only end the picking.
-    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopPicking(); setTarget(picked); } };
+    // Inside a modal dialog, Esc is also a close request for the dialog. In mark mode it only ends the marking.
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopPicking(); } };
     const PICK_EVENTS = [['pointermove', onMove], ['click', onPick], ['pointerdown', swallow], ['mousedown', swallow], ['keydown', onKey]];
+
+    // Box tool: drag a region on the page. It is stored in page coordinates, so it stays put when the page scrolls.
+    let drag = null;
+    function boxDown(e) {
+      e.preventDefault();
+      drag = { x: e.clientX, y: e.clientY };
+      els.boxcatch.setPointerCapture(e.pointerId);
+      els.boxPreview.hidden = false;
+      Object.assign(els.boxPreview.style, { left: `${drag.x}px`, top: `${drag.y}px`, width: '0px', height: '0px' });
+    }
+    function boxMove(e) {
+      if (!drag) return;
+      Object.assign(els.boxPreview.style, { left: `${Math.min(drag.x, e.clientX)}px`, top: `${Math.min(drag.y, e.clientY)}px`,
+        width: `${Math.abs(e.clientX - drag.x)}px`, height: `${Math.abs(e.clientY - drag.y)}px` });
+    }
+    function boxUp(e) {
+      if (!drag) return;
+      const r = { x: Math.min(drag.x, e.clientX) + scrollX, y: Math.min(drag.y, e.clientY) + scrollY, w: Math.abs(e.clientX - drag.x), h: Math.abs(e.clientY - drag.y) };
+      drag = null;
+      els.boxPreview.hidden = true;
+      if (r.w >= 8 && r.h >= 8 && marks.length < 10) { marks.push({ type: 'box', rect: r, note: '' }); renderMarks(); }
+    }
+
+    function setMarkTool(next) {
+      tool = next;
+      for (const [k, b] of Object.entries({ tap: els.toolTap, box: els.toolBox, draw: els.toolDraw })) b.setAttribute('aria-pressed', String(k === next));
+      els.markTip.textContent = { tap: t.hintTap, box: t.hintBox, draw: t.hintDraw }[next];
+      els.boxcatch.hidden = next !== 'box';
+      els.box.hidden = true;
+    }
 
     function startPicking() {
       picking = true;
       els.box.classList.add('picking');
       els.panel.hidden = true;
       els.scrim.hidden = true;
-      els.hint.hidden = false;
+      els.marktools.hidden = false;
+      setMarkTool(tool);
       for (const [type, fn] of PICK_EVENTS) addEventListener(type, fn, true);
+      drawFrames();
     }
     function stopPicking() {
       if (!picking) return;
       picking = false;
       els.box.classList.remove('picking');
+      els.box.hidden = true;
+      els.boxcatch.hidden = true;
+      els.marktools.hidden = true;
       els.panel.hidden = false;
       els.scrim.hidden = false;
-      els.hint.hidden = true;
       for (const [type, fn] of PICK_EVENTS) removeEventListener(type, fn, true);
+      renderMarks();
     }
 
     const isHidden = () => { try { return typeof window.papercutsHidden === 'function' && !!window.papercutsHidden(); } catch (_) { return false; } };
@@ -725,7 +871,7 @@
 
     function open() {
       if (isHidden()) return;
-      if (!picked && lastTap && Date.now() - lastTap.at < 15000 && lastTap.el.isConnected) { picked = lastTap.el; lastTap = null; }
+      if (!marks.length && lastTap && Date.now() - lastTap.at < 15000 && lastTap.el.isConnected) { marks.push({ type: 'element', el: lastTap.el, note: '', chain: [] }); lastTap = null; }
       rehome();
       if (doneState) showForm();
       els.panel.hidden = false;
@@ -733,7 +879,7 @@
       els.tab.classList.add('away');
       els.tab.inert = true;
       els.tab.setAttribute('aria-expanded', 'true');
-      setTarget(picked, true);
+      renderMarks();
       // On a phone the keyboard would cover half the sheet before the user decides anything, so focus the heading.
       if (els.form.hidden) return;
       if (matchMedia('(pointer: coarse)').matches) els.heading.focus({ preventScroll: true });
@@ -745,6 +891,7 @@
       els.panel.hidden = true;
       els.scrim.hidden = true;
       els.box.hidden = true;
+      els.marklayer.hidden = true;
       els.tab.classList.remove('away');
       els.tab.inert = false;
       els.tab.setAttribute('aria-expanded', 'false');
@@ -862,19 +1009,19 @@
       els.preview.removeAttribute('src');
       els.previewRow.hidden = true;
     }
-    function pickedImage() {
-      if (!picked) return null;
-      return picked.localName === 'img' ? picked : picked.querySelector && picked.querySelector('img');
+    function imageIn(el) {
+      if (!el) return null;
+      return el.localName === 'img' ? el : el.querySelector && el.querySelector('img');
     }
-    function markPicture() {
-      const src = pickedImage();
+    function markPicture(target) {
+      const src = target && target.localName === 'img' ? target : (marks.map((m) => m.type === 'element' && imageIn(m.el)).find(Boolean) || null);
       if (!src) return;
       // Load it again with CORS. A picture from another site without CORS would taint the canvas.
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => openSheet(img);
-      img.onerror = () => setStatus('warn', t.cannotMark);
-      img.src = src.currentSrc || src.src;
+      const copy = new Image();
+      copy.crossOrigin = 'anonymous';
+      copy.onload = () => openSheet(copy);
+      copy.onerror = () => setStatus('warn', t.cannotMark);
+      copy.src = src.currentSrc || src.src;
     }
     const canCapture = () => !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && matchMedia('(pointer: fine)').matches;
     async function markScreen() {
@@ -1047,15 +1194,28 @@
     }
 
     // A new feedback starts clean: no text, no picture, no element, no draft kind or fields.
-    const clearForm = () => { els.text.value = ''; textChanged(); forgetMark(); setTarget(null); kind = null; draftFields = null; };
+    const clearForm = () => { els.text.value = ''; textChanged(); forgetMark(); clearMarks(); kind = null; draftFields = null; };
+
+    function marksPayload() {
+      if (!marks.length) return {};
+      return {
+        marks: marks.map((m, i) => {
+          const base = { nr: i + 1, type: m.type, note: m.note || '' };
+          if (m.type === 'box') return { ...base, rect: m.rect };
+          const r = m.el.getBoundingClientRect();
+          return { ...base, name: nameOf(m.el), text: textOf(m.el).slice(0, 120), selector: cssPath(m.el), rect: { x: r.x + scrollX, y: r.y + scrollY, w: r.width, h: r.height } };
+        }),
+        placeMarks: marks.map((m) => (m.type === 'box' ? { box: m.rect } : { selector: cssPath(m.el) })),
+      };
+    }
 
     async function submit() {
       const text = els.text.value.trim();
       if (!text) { setStatus('warn', t.writeFirst); els.text.focus(); return; }
       // People give feedback only. Agents triage it: no kind means "other", fields come only from a draft.
-      const input = { kind: kind || 'other', text, from: 'human', ...(mark || {}), ...(draftFields ? { fields: draftFields } : {}) };
+      const input = { kind: kind || 'other', text, from: 'human', ...(mark || {}), ...(draftFields ? { fields: draftFields } : {}), ...marksPayload() };
       if (DOWNLOAD) {
-        downloadReport(input, picked);
+        downloadReport(input, firstElement());
         clearForm();
         setStatus('ok', t.downloaded);
         return;
@@ -1063,7 +1223,7 @@
       els.send.disabled = true;
       els.send.classList.add('busy');
       setStatus('info', t.sending);
-      const r = await window.papercuts.report({ ...input, _el: picked });
+      const r = await window.papercuts.report({ ...input, _el: firstElement() });
       els.send.disabled = false;
       els.send.classList.remove('busy');
       if (r.ok) {
@@ -1128,12 +1288,8 @@
       icon('logo'), h('span', { class: 'label' }, t.tab), els.count, els.replies);
     makeDraggable(els.tab);
 
-    els.targetName = h('span', { class: 'name' });
-    els.targetSub = h('span', { class: 'sub' });
-    els.target = h('div', { class: 'target' }, els.targetName, els.targetSub);
-    els.parent = iconBtn('parent mini', 'up', t.parent, () => { if (picked && picked.parentElement) { chain.push(picked); setTarget(picked.parentElement, true); } });
-    els.child = iconBtn('child mini', 'down', t.child, () => { if (chain.length) setTarget(chain.pop(), true); }, { disabled: '' });
-    els.whole = iconBtn('whole mini', 'reset', t.whole, () => setTarget(null));
+    els.parent = h('button', { type: 'button', class: 'tool parent', 'aria-label': t.parent, title: t.parent, onclick: larger }, icon('up'));
+    els.child = h('button', { type: 'button', class: 'tool child', 'aria-label': t.child, title: t.child, disabled: '', onclick: smaller }, icon('down'));
     els.pick = h('button', { type: 'button', class: 'pick pill', onclick: startPicking }, icon('pick'), t.pick);
 
 
@@ -1154,7 +1310,7 @@
     els.presets = h('div', { class: 'presets' }, ...presetList().map((p) => h('button', { type: 'button', onclick: () => { setKind(kindsList().includes(p.kind) ? p.kind : kind); els.text.value = p.text; textChanged(); if (!matchMedia('(pointer: coarse)').matches) els.text.focus(); } }, p.text)));
     els.presets.hidden = !presetList().length;
 
-    els.markPic = h('button', { type: 'button', class: 'mark-pic pill', hidden: '', onclick: markPicture }, icon('image'), t.markPic);
+    els.markPic = h('button', { type: 'button', class: 'mark-pic pill', hidden: '', onclick: () => markPicture() }, icon('image'), t.markPic);
     els.markScreen = h('button', { type: 'button', class: 'mark-screen pill', onclick: markScreen }, icon('screen'), t.markScreen);
     els.markScreen.hidden = !canCapture();
     els.preview = h('img', { class: 'preview', alt: t.picture });
@@ -1186,7 +1342,24 @@
     els.items = h('ul', { class: 'items' });
     els.listView = h('div', { hidden: '' }, els.items);
     // One input. The element, the place, the errors and the page state come along in the background.
-    els.where = h('div', { class: 'where', hidden: '' }, icon('frame'), els.target, els.parent, els.child, els.whole);
+    els.marklist = h('ol', { class: 'marklist' });
+    els.where = h('div', { class: 'marks', hidden: '' }, els.marklist);
+    els.toolTap = h('button', { type: 'button', class: 'tool tool-tap', onclick: () => setMarkTool('tap') }, icon('pick'), h('span', {}, t.toolTap));
+    els.toolBox = h('button', { type: 'button', class: 'tool tool-box', onclick: () => setMarkTool('box') }, icon('frame'), h('span', {}, t.toolBox));
+    els.toolDraw = h('button', { type: 'button', class: 'tool tool-draw', onclick: () => setMarkTool('draw') }, icon('pen'), h('span', {}, t.toolDraw));
+    els.markCount = h('span', { class: 'bubble' });
+    els.markTip = h('div', { class: 'tip', role: 'status' });
+    els.marktools = h('div', { class: 'marktools', hidden: '' },
+      h('div', { class: 'bar', role: 'toolbar', 'aria-label': t.pick }, els.toolTap, els.toolBox, els.toolDraw, h('span', { class: 'sep' }), els.parent, els.child,
+        h('span', { class: 'sep' }), h('button', { type: 'button', class: 'tool done primary', 'aria-label': t.markDone, onclick: () => stopPicking() }, icon('check'), h('span', {}, t.markDone), els.markCount)),
+      els.markTip);
+    els.marklayer = h('div', { class: 'marklayer', hidden: '' });
+    els.boxPreview = h('div', { class: 'mframe box', hidden: '' });
+    els.boxcatch = h('div', { class: 'boxcatch', hidden: '' }, els.boxPreview);
+    els.boxcatch.addEventListener('pointerdown', boxDown);
+    els.boxcatch.addEventListener('pointermove', boxMove);
+    els.boxcatch.addEventListener('pointerup', boxUp);
+    els.boxcatch.addEventListener('pointercancel', () => { drag = null; els.boxPreview.hidden = true; });
     els.form = h('div', { class: 'body form-area' },
       els.speakWrap,
       els.presets,
@@ -1234,12 +1407,10 @@
     els.scrim = h('div', { class: 'scrim', hidden: '', onclick: () => close() });
     els.boxLabel = h('span', { class: 'boxlabel' });
     els.box = h('div', { class: 'box', hidden: '' }, els.boxLabel);
-    els.hint = h('div', { class: 'hint', hidden: '', role: 'status' }, h('span', {}, t.hint),
-      h('button', { type: 'button', class: 'cancel-pick', onclick: () => { stopPicking(); setTarget(picked, true); } }, t.cancelPick));
-    shadow.append(els.box, els.hint, els.tab, els.scrim, els.panel, els.sheet);
+    shadow.append(els.marklayer, els.box, els.boxcatch, els.marktools, els.tab, els.scrim, els.panel, els.sheet);
     setKind(null);
     document.documentElement.append(host);
-    setTarget(null);
+    renderMarks();
     els.box.hidden = true;
     // data-shortcut="alt+shift+p" (default) or "off". Matched on the physical key, so it works on every keyboard layout.
     const combo = (cfg.shortcut || 'alt+shift+p').toLowerCase();
