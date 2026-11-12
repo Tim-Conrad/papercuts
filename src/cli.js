@@ -9,16 +9,18 @@ import { openPapercuts } from './list.js';
 import { loadRepoConfig, normalizeFields, checkConfigText, CONFIG_PATH } from './ticket.js';
 import { initRepo } from './init.js';
 import { normalizeReport, redact, shorten, parseMarkers, KINDS } from './format.js';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { fileReport, targetRepo } from './file.js';
 import { githubClient, GithubError } from './github.js';
 import { credentialFrom } from './credential.js';
 import { loadConfig, readConfigFile, configPath, VERSION } from './config.js';
 import { repoFromGit } from './repo.js';
+import { storeFor, localClient, localRepoName, STORES } from './store.js';
+import { relative } from 'node:path';
 
 const BIN = fileURLToPath(new URL('../bin/papercuts.js', import.meta.url));
 const SKILL_PATH = fileURLToPath(new URL('../skills/papercuts/SKILL.md', import.meta.url));
-const DESCRIPTION = 'One place where you and your agents report friction. Each papercut is a GitHub issue.';
+const DESCRIPTION = 'One place where you and your agents report friction. Each papercut is a GitHub issue, or a row in a local file.';
 const VIEW_LIMIT = 800;
 const HOME_ROWS = 20;
 const HOOK_ROWS = 10;
@@ -59,6 +61,14 @@ const COMMANDS = {
     defaults: ['--fix: required'],
     examples: ['papercuts done 12 --fix "gh-axi pr view prints the body since commit abc1234"'],
   },
+  comment: {
+    usage: 'papercuts comment <id> "<text>" [--repo <owner/name>]',
+    about: 'Add a comment to a papercut, for example options for the owner. It stays open.',
+    args: ['id', 'text'],
+    flags: { repo: 'string' },
+    defaults: ['secrets in the text are redacted'],
+    examples: ['papercuts comment 12 "Option A: rename the script. Option B: fix the path in AGENTS.md."'],
+  },
   config: {
     usage: 'papercuts config [--file <path>] [--check] [--repo <owner/name>]',
     about: 'Show the ticket config of the repo (.github/papercuts.json): kinds, fields, presets, labels, warnings.',
@@ -68,12 +78,13 @@ const COMMANDS = {
     examples: ['papercuts config', 'papercuts config --file .github/papercuts.json --check', 'papercuts config --check'],
   },
   init: {
-    usage: 'papercuts init',
+    usage: 'papercuts init [--store github|local]',
     about: 'Set up papercuts in the repo of an app: a starter .github/papercuts.json, the AGENTS.md block, and the steps for your stack.',
     args: [],
-    flags: {},
-    defaults: ['never overwrites a file; a second run is a no-op'],
-    examples: ['papercuts init'],
+    flags: { store: 'string' },
+    defaults: ['--store: github (each papercut is an issue); local keeps papercuts in .papercuts/papercuts.db, gitignored, without GitHub',
+      'keeps your edits: it adds only what is missing and refreshes an outdated AGENTS.md block'],
+    examples: ['papercuts init', 'papercuts init --store local'],
   },
   shot: {
     usage: 'papercuts shot <id> [--out <file>] [--repo <owner/name>]',
@@ -211,7 +222,7 @@ description: Use when a tool, a path, a rule or a page gives you friction, or wh
 
 # Papercuts
 
-Papercuts is the one place where Tim and his agents report friction. Each papercut is a GitHub issue with the label \`papercut\`.
+Papercuts is the one place where Tim and his agents report friction. Each papercut is a GitHub issue with the label \`papercut\`. If \`.github/papercuts.json\` sets \`"store": "local"\`, each papercut is a row in \`.papercuts/papercuts.db\` instead, and the commands work the same.
 
 ## When to report
 
@@ -236,7 +247,7 @@ Run \`papercuts\` with no arguments to see the open papercuts of the current rep
 2. Fix it with the normal rules of the repo: a branch, a test first for a bug, the checks.
 3. Run \`papercuts done <id> --fix "<what changed, and the commit>"\`.
 
-If a papercut needs a decision from Tim, do not close it. Write two or three options as a comment on the issue.
+If a papercut needs a decision from Tim, do not close it. Write two or three options with \`papercuts comment <id> "<options>"\`.
 
 ## Rules
 
@@ -384,13 +395,27 @@ export async function run(argv, ctx = {}) {
       return 0;
     }
 
-    const config = loadConfig(env, readConfigFile(env));
+    if (command === 'init') {
+      if (flags.store && !STORES.includes(flags.store)) throw usageError(`--store must be github or local, not "${flags.store}"`, `usage: ${COMMANDS.init.usage}`);
+      print(initRepo(cwd, repoFromGit(cwd), env, { store: flags.store }));
+      return 0;
+    }
+
+    const ownRepo = repoFromGit(cwd);
+    const store = storeFor(cwd, env, { repoFlag: flags.repo, ownRepo });
+    const local = store.mode === 'local';
+    const config = loadConfig(env, readConfigFile(env), { store: store.mode });
+    // The local store needs no credential and never talks to GitHub.
+    const makeClient = () => (local ? localClient({ dbPath: store.dbPath, root: store.root }) : ctx.client || githubClient({ credential: credentialFrom(config.credential) }));
+    const target = local ? { mode: 'per-project' } : config.target;
     if (command === 'serve') {
       const { createRelay } = await import('./relay.js');
-      const client = ctx.client || githubClient({ credential: credentialFrom(config.credential) });
-      const server = createRelay(config, { client });
-      await new Promise((r) => server.listen(config.port, '0.0.0.0', r));
-      process.stderr.write(`papercuts relay ${VERSION} on :${config.port}, target ${config.target.mode}, credential ${credentialFrom(config.credential).describe()}\n`);
+      const server = createRelay({ ...config, target }, { client: makeClient() });
+      // A local relay runs next to a dev server. It listens only on this machine, so that the LAN cannot read the list.
+      const host = env.PAPERCUTS_HOST || (local ? '127.0.0.1' : '0.0.0.0');
+      await new Promise((r) => server.listen(config.port, host, r));
+      const via = local ? `local store ${store.dbPath}` : `target ${target.mode}, credential ${credentialFrom(config.credential).describe()}`;
+      process.stderr.write(`papercuts relay ${VERSION} on ${host}:${config.port}, ${via}, origins ${config.origins.join(' ')}\n`);
       await new Promise(() => {});
     }
 
@@ -399,12 +424,12 @@ export async function run(argv, ctx = {}) {
       try { payload = JSON.parse(readFileSync(args[0], 'utf8')); } catch (e) { throw runError(`cannot read ${args[0]}: ${e.message}`, 'give the JSON file that the widget saved'); }
       const norm = normalizeReport(payload?.report, payload?.from ?? 'human');
       if (!norm.ok) throw runError(norm.error, norm.help);
-      const client = ctx.client || githubClient({ credential: credentialFrom(config.credential) });
+      const client = makeClient();
       const repoCfg = (await loadRepoConfig(client, norm.report.repo)).config;
-      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from);
+      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from, norm.report.kind);
       if (!fields.ok) throw runError(fields.error, fields.help);
       norm.report.fields = fields.fields;
-      const r = await fileReport(norm.report, { client, target: config.target, config: repoCfg });
+      const r = await fileReport(norm.report, { client, target, config: repoCfg });
       if (!r.ok) throw runError(r.error, r.help);
       print({ papercut: r.deduped ? `added +1 to #${r.issue}` : `#${r.issue} created`, url: r.url });
       return 0;
@@ -418,20 +443,16 @@ export async function run(argv, ctx = {}) {
       return flags.check && c.warnings.length ? 1 : 0;
     }
 
-    if (command === 'init') {
-      print(initRepo(cwd, repoFromGit(cwd), env));
-      return 0;
-    }
-
-    const repo = flags.repo || repoFromGit(cwd);
+    const repo = flags.repo || ownRepo || (local ? localRepoName(store.main) : null);
     if (!repo) {
       if (flags.hook) return 0;
-      throw runError('no repo here: this folder has no GitHub remote "origin"', 'Run `papercuts --repo <owner/name>`');
+      throw runError('no repo here: this folder has no GitHub remote "origin"', 'Run `papercuts --repo <owner/name>`, or `papercuts init --store local` for a local store');
     }
-    const client = ctx.client || githubClient({ credential: credentialFrom(config.credential) });
-    const where = targetRepo({ repo }, config.target);
-    const label = config.target.mode === 'central' ? `papercut,project:${repo}` : 'papercut';
-    const repoLine = config.target.mode === 'central' ? `${repo} (central: ${where})` : repo;
+    const client = makeClient();
+    const where = targetRepo({ repo }, target);
+    const label = target.mode === 'central' ? `papercut,project:${repo}` : 'papercut';
+    const repoLine = local ? `${repo} (local store)` : target.mode === 'central' ? `${repo} (central: ${where})` : repo;
+    const storeLine = local ? { store: `local ${relative(cwd, store.dbPath) || store.dbPath}` } : {};
 
     if (command === 'add') {
       const raw = {};
@@ -443,12 +464,12 @@ export async function run(argv, ctx = {}) {
       const norm = normalizeReport({ kind: args[0], text: args[1], where: flags.where, repo }, 'agent');
       if (!norm.ok) throw runError(norm.error, norm.help);
       const repoCfg = (await loadRepoConfig(client, repo)).config;
-      const fields = normalizeFields(raw, repoCfg);
+      const fields = normalizeFields(raw, repoCfg, 'agent', norm.report.kind);
       if (!fields.ok) throw runError(fields.error, fields.help);
       norm.report.fields = fields.fields;
-      const r = await fileReport(norm.report, { client, target: config.target, config: repoCfg });
+      const r = await fileReport(norm.report, { client, target, config: repoCfg });
       if (!r.ok) throw runError(r.error, r.help);
-      print({ papercut: r.deduped ? `added +1 to #${r.issue}` : `#${r.issue} created`, url: r.url });
+      print({ papercut: r.deduped ? `added +1 to #${r.issue}` : `#${r.issue} created`, url: r.url, ...storeLine });
       return 0;
     }
 
@@ -527,6 +548,16 @@ export async function run(argv, ctx = {}) {
       return 0;
     }
 
+    if (command === 'comment') {
+      const n = issueNumber(args[0], 'comment');
+      const text = redact(String(args[1]).trim());
+      if (!text) throw usageError('the comment is empty', `usage: ${COMMANDS.comment.usage}`);
+      await client.getIssue(where, n);
+      await client.comment(where, n, text);
+      print({ papercut: `comment added to #${n}` });
+      return 0;
+    }
+
     if (command === 'done') {
       const n = Number(args[0]);
       if (!Number.isInteger(n) || n < 1) throw usageError(`<id> must be an issue number, not "${args[0]}"`, `usage: ${COMMANDS.done.usage}`);
@@ -546,6 +577,22 @@ export async function run(argv, ctx = {}) {
       const check = async (name, fn) => {
         try { checks.push({ check: name, result: 'ok', detail: await fn() }); } catch (e) { checks.push({ check: name, result: 'fail', detail: e.message }); }
       };
+      if (local) {
+        await check('store', async () => { await client.listOpen(repo, 'papercut'); return `local ${tilde(store.dbPath, env)}`; });
+        await check('gitignored', async () => {
+          if (!store.isGit) return 'not a git repo, nothing to ignore';
+          try {
+            execFileSync('git', ['check-ignore', '-q', store.dbPath], { cwd: store.main, stdio: 'ignore', timeout: 5000 });
+          } catch {
+            throw new Error(`${relative(store.main, store.dbPath)} is not gitignored: add ".papercuts/" to .gitignore, or run \`papercuts init --store local\``);
+          }
+          return '.papercuts/ is in .gitignore';
+        });
+        const passed = checks.filter((c) => c.result === 'ok').length;
+        print({ checks });
+        stdout.write(`checks: ${passed}/${checks.length} passed\n`);
+        return passed === checks.length ? 0 : 1;
+      }
       await check('credential', async () => (ctx.client ? 'injected' : credential.describe()));
       await check('token valid', async () => `logged in as ${(await client.user()).login}`);
       await check('issue access', async () => {
@@ -605,8 +652,9 @@ export async function run(argv, ctx = {}) {
     }
     if (e instanceof GithubError) {
       if (parsed?.flags?.hook) return 0;
-      const help = e.status === 404 ? 'the issue or repo does not exist, or the token cannot see it' : 'Run `papercuts doctor`';
-      stdout.write(toon({ error: `github: ${e.status} ${e.message}`, help }) + '\n');
+      const help = e.source === 'local' ? 'Run `papercuts list` for the papercuts in the local store'
+        : e.status === 404 ? 'the issue or repo does not exist, or the token cannot see it' : 'Run `papercuts doctor`';
+      stdout.write(toon({ error: `${e.source || 'github'}: ${e.status} ${e.message}`, help }) + '\n');
       return 1;
     }
     if (parsed?.flags?.hook) return 0;

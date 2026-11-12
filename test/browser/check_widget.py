@@ -4,6 +4,7 @@ Run: uv run --no-project --with playwright python3 test/browser/check_widget.py
 It starts test/browser/harness.js (fake GitHub, relay, test page) and drives Chromium at 412 and 1440 px.
 """
 import json
+import os
 import re
 import subprocess
 import urllib.parse
@@ -354,6 +355,25 @@ def v022_checks(browser, ctl, page_url, width):
     check(f"{width}: list shows a recently closed papercut with its fix", "done in abc1234" in txt and item.get_attribute("class") == "closed", txt)
     check(f"{width}: no page errors in v0.2.2 checks", not errors, "; ".join(errors))
     ctx.close()
+    # Papercut #17: only a fixed papercut in the list. The button names it, it does not say "0 open".
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    fixed_only = {"ok": True, "repo": "Tim-Conrad/shop", "items": [{"issue": 9, "state": "closed", "closedAt": "2026-11-12T10:00:00Z", "fix": "done",
+        "kind": "ux", "from": "human", "title": "fixed one", "url": "https://github.com/x/y/issues/9", "created": "2026-11-11T10:00:00Z",
+        "where": "", "place": None, "plus": 0, "replyCount": 1, "replies": [{"at": "2026-11-12T10:00:00Z", "text": "Fixed: done"}]}]}
+    both = {**fixed_only, "items": fixed_only["items"] + [{**fixed_only["items"][0], "issue": 10, "state": "open", "replyCount": 0, "replies": []}]}
+    for data, want in ((fixed_only, ["1 fixed"]), (both, ["1 open", "1 fixed"])):
+        page.unroute("**/list?**")
+        page.route("**/list?**", lambda route, _req, d=data: route.fulfill(status=200, content_type="application/json",
+            headers={"access-control-allow-origin": page_url.split("/", 3)[0] + "//" + page_url.split("/", 3)[2], "access-control-allow-credentials": "true"}, body=json.dumps(d)))
+        page.goto(page_url)
+        ready(page)
+        host = page.locator("papercuts-widget")
+        host.locator(".tab").click()
+        page.wait_for_timeout(300)
+        label = host.locator("button.list").inner_text() if host.locator("button.list").is_visible() else "(hidden)"
+        check(f"{width}: list button says {' and '.join(want)}", all(w in label for w in want) and "0 open" not in label, label)
+    ctx.close()
 
 
 V03_CONFIG = json.dumps({
@@ -589,6 +609,20 @@ def mark_checks(browser, ctl, page_url, width):
     page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
     body = issues(ctl)[-1]["body"]
     check(f"{width}: papercutsContext gets the first marked element", "about: buy" in body, body[:600])
+    # The keyboard alternative: Tab to a page element, Enter marks it instead of pressing it.
+    host.locator("button.another").click()
+    host.locator("button.pick").click()
+    host.locator(".marktools button.tool-tap").click()
+    page.evaluate("window.__buyClicks = 0; document.getElementById('buy').addEventListener('click', () => window.__buyClicks++)")
+    check(f"{width}: mark mode tells keyboard users how to mark", "enter" in host.locator(".marktools .tip").inner_text().lower(), host.locator(".marktools .tip").inner_text())
+    page.focus("#buy")
+    page.keyboard.press("Enter")
+    check(f"{width}: Enter marks the focused element and does not press it", frames(page) == 1 and page.evaluate("window.__buyClicks") == 0, f"{frames(page)} {page.evaluate('window.__buyClicks')}")
+    page.keyboard.press(" ")
+    check(f"{width}: Space on a marked element removes the mark", frames(page) == 0)
+    page.keyboard.press("Enter")
+    page.keyboard.press("Escape")
+    check(f"{width}: the keyboard mark is in the panel", "buy" in host.locator(".marklist").inner_text().lower(), host.locator(".marklist").inner_text())
     check(f"{width}: no page errors in mark checks", not errors, "; ".join(errors))
     ctx.close()
 
@@ -600,7 +634,8 @@ def main():
         page_url, ctl = urls["page"], urls["control"]
         with sync_playwright() as p:
             browser = p.chromium.launch(executable_path=CHROME, headless=True) if Path(CHROME).exists() else p.chromium.launch()
-            for width in (412, 1440):
+            only = [x for x in os.environ.get("CHECKS", "").split(",") if x]
+            for width in (() if only else (412, 1440)):
                 control(ctl, "/mode?m=ok")
                 ctx = browser.new_context(viewport={"width": width, "height": 860})
                 page = ctx.new_page()
@@ -669,14 +704,9 @@ def main():
                 ctx.close()
 
             for width in (412, 1440):
-                v2_base_checks(browser, ctl, page_url, width)
-                sheet_checks(browser, ctl, page_url, width)
-                list_checks(browser, ctl, page_url, width)
-                parity_checks(browser, ctl, page_url, width)
-                v022_checks(browser, ctl, page_url, width)
-                v03_checks(browser, ctl, page_url, width)
-                review_checks(browser, ctl, page_url, width)
-                mark_checks(browser, ctl, page_url, width)
+                for group in (v2_base_checks, sheet_checks, list_checks, parity_checks, v022_checks, v03_checks, review_checks, mark_checks):
+                    if not only or group.__name__ in only:
+                        group(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})

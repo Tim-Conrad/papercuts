@@ -5,7 +5,7 @@ description: Use when a tool, a path, a rule or a page gives you friction, or wh
 
 # Papercuts
 
-Papercuts is the one place where Tim and his agents report friction. Each papercut is a GitHub issue with the label `papercut`.
+Papercuts is the one place where Tim and his agents report friction. Each papercut is a GitHub issue with the label `papercut`. If `.github/papercuts.json` sets `"store": "local"`, each papercut is a row in `.papercuts/papercuts.db` instead, and the commands work the same.
 
 ## When to report
 
@@ -24,8 +24,9 @@ Do not stop your task to report. Report in one command and continue. A repeat ad
 - `papercuts list [--from agent|human] [--kind <kind>] [--fields <a,b>] [--repo <owner/name>]`: List the open papercuts of the repo.
 - `papercuts view <id> [--full] [--repo <owner/name>]`: Show one papercut with its context.
 - `papercuts done <id> --fix "<what changed>" [--repo <owner/name>]`: Close a papercut with a note about the fix. A closed papercut is a no-op.
+- `papercuts comment <id> "<text>" [--repo <owner/name>]`: Add a comment to a papercut, for example options for the owner. It stays open.
 - `papercuts config [--file <path>] [--check] [--repo <owner/name>]`: Show the ticket config of the repo (.github/papercuts.json): kinds, fields, presets, labels, warnings.
-- `papercuts init`: Set up papercuts in the repo of an app: a starter .github/papercuts.json, the AGENTS.md block, and the steps for your stack.
+- `papercuts init [--store github|local]`: Set up papercuts in the repo of an app: a starter .github/papercuts.json, the AGENTS.md block, and the steps for your stack.
 - `papercuts shot <id> [--out <file>] [--repo <owner/name>]`: Save the picture of a papercut as a PNG file.
 - `papercuts replay <id> [--out <file>] [--base <url>] [--repo <owner/name>]`: Show what the reporter saw: the page with the same size, place and storage, the element in a red frame.
 - `papercuts import <file.json>`: File a report that the widget saved as a file (?papercuts=download). A second import is a no-op.
@@ -40,7 +41,7 @@ Run `papercuts` with no arguments to see the open papercuts of the current repo.
 2. Fix it with the normal rules of the repo: a branch, a test first for a bug, the checks.
 3. Run `papercuts done <id> --fix "<what changed, and the commit>"`.
 
-If a papercut needs a decision from Tim, do not close it. Write two or three options as a comment on the issue.
+If a papercut needs a decision from Tim, do not close it. Write two or three options with `papercuts comment <id> "<options>"`.
 
 ## Rules
 

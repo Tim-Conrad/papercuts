@@ -35,11 +35,11 @@
       markPic: 'Mark picture', markScreen: 'Mark screen', mic: 'Speak', micStop: 'Stop', pen: 'Pen', pin: 'Pin',
       undo: 'Undo', clear: 'Clear', cancel: 'Cancel', done: 'Done', pinText: 'What is at this pin?', removePic: 'Remove picture',
       cannotMark: 'This picture cannot be marked (it comes from another site).', noScreen: 'No screen picture: ',
-      list: (n) => `${n} open`, back: 'New papercut', pickedSub: 'Picked element', pins: (n) => `${n} ${n === 1 ? 'pin' : 'pins'}`, picture: 'Marked picture', cancelPick: 'Cancel', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
+      list: (o, f) => [o || !f ? `${o} open` : '', f ? `${f} fixed` : ''].filter(Boolean).join(' · '), back: 'New papercut', pickedSub: 'Picked element', pins: (n) => `${n} ${n === 1 ? 'pin' : 'pins'}`, picture: 'Marked picture', cancelPick: 'Cancel', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`, empty: 'No open papercuts.', age: (d) => (d < 1 ? 'today' : `${d} d ago`),
       fixed: 'Fixed', required: 'required', fieldRequired: (l) => `Fill in “${l}”, it is required.`, speak: 'Tap to speak', listening: 'Listening… tap to stop', typeInstead: 'or type below',
       toolTap: 'Tap', toolBox: 'Box', toolDraw: 'Draw', markDone: 'Done', note: 'Note (optional)', region: (w, h) => `Region ${w}×${h}`,
-      hintTap: 'Tap the parts you mean. Tap again to remove.', hintBox: 'Drag a box around a region.', hintDraw: 'Tap a picture to draw on it.',
+      hintTap: 'Tap the parts you mean. Tap again to remove.', hintKeys: 'Keyboard: Tab, then Enter.', hintBox: 'Drag a box around a region.', hintDraw: 'Tap a picture to draw on it.',
       removeMark: (n) => `Remove mark ${n}`,
       another: 'Report another', thanks: 'Thank you. Sent as ', twoFingers: 'Hold two fingers', copyLink: 'Copy link', copied: 'Link copied',
       loginFirst: 'Log in to report. Open the login page, then come back: ', loginLink: 'log in',
@@ -57,11 +57,11 @@
       markPic: 'Bild markieren', markScreen: 'Bildschirm markieren', mic: 'Sprechen', micStop: 'Stopp', pen: 'Stift', pin: 'Nummer',
       undo: 'Zurück', clear: 'Leeren', cancel: 'Abbrechen', done: 'Fertig', pinText: 'Was ist an dieser Nummer?', removePic: 'Bild entfernen',
       cannotMark: 'Dieses Bild lässt sich nicht markieren (es kommt von einer anderen Seite).', noScreen: 'Kein Bildschirmfoto: ',
-      list: (n) => `${n} offen`, back: 'Neuer Papercut', pickedSub: 'Gewähltes Element', pins: (n) => `${n} ${n === 1 ? 'Nummer' : 'Nummern'}`, picture: 'Markiertes Bild', cancelPick: 'Abbrechen', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
+      list: (o, f) => [o || !f ? `${o} offen` : '', f ? `${f} behoben` : ''].filter(Boolean).join(' · '), back: 'Neuer Papercut', pickedSub: 'Gewähltes Element', pins: (n) => `${n} ${n === 1 ? 'Nummer' : 'Nummern'}`, picture: 'Markiertes Bild', cancelPick: 'Abbrechen', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'Antwort' : 'Antworten'}`, empty: 'Keine offenen Papercuts.', age: (d) => (d < 1 ? 'heute' : `vor ${d} T.`),
       fixed: 'Behoben', required: 'Pflicht', fieldRequired: (l) => `Fülle „${l}“ aus, das ist Pflicht.`, speak: 'Tippen und sprechen', listening: 'Ich höre zu… tippen zum Beenden', typeInstead: 'oder unten tippen',
       toolTap: 'Tippen', toolBox: 'Rahmen', toolDraw: 'Zeichnen', markDone: 'Fertig', note: 'Notiz (optional)', region: (w, h) => `Bereich ${w}×${h}`,
-      hintTap: 'Tippe auf die Stellen. Noch einmal tippen entfernt sie.', hintBox: 'Ziehe einen Rahmen um einen Bereich.', hintDraw: 'Tippe auf ein Bild, um darauf zu zeichnen.',
+      hintTap: 'Tippe auf die Stellen. Noch einmal tippen entfernt sie.', hintKeys: 'Tastatur: Tab, dann Enter.', hintBox: 'Ziehe einen Rahmen um einen Bereich.', hintDraw: 'Tippe auf ein Bild, um darauf zu zeichnen.',
       removeMark: (n) => `Markierung ${n} entfernen`,
       another: 'Noch einen melden', thanks: 'Danke. Gesendet als ', twoFingers: 'Mit zwei Fingern halten', copyLink: 'Link kopieren', copied: 'Link kopiert',
       loginFirst: 'Zum Melden anmelden. Öffne die Login-Seite und komm zurück: ', loginLink: 'anmelden',
@@ -414,8 +414,8 @@
     .where { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 14px; background: var(--pc-surface); }
     .where > .ico { color: var(--pc-muted); }
     .target { flex: 1; min-width: 0; display: grid; }
-    .target .name { font-size: 13.5px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .target .name.el { font: 500 12.5px/1.35 var(--pc-mono); }
+    .target .name { font-size: 14px; font-weight: 600; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .target .name.el { font: 500 12px/1.35 var(--pc-mono); }
     .target .sub { font-size: 12px; color: var(--pc-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mini { width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--pc-muted); }
     .mini .ico { width: 16px; height: 16px; }
@@ -450,7 +450,7 @@
     .presets button:hover { background: var(--pc-hover); }
     .fields { display: grid; gap: 10px; }
     .fields .fld { display: grid; gap: 6px; }
-    .fields .fld > span { font-size: 12.5px; font-weight: 600; color: var(--pc-muted); }
+    .fields .fld > span { font-size: 12px; font-weight: 600; color: var(--pc-muted); }
     .fields .req { font-weight: 500; color: var(--pc-accent); margin-left: 4px; }
     .fields input { height: 40px; border: 1px solid var(--pc-line); border-radius: 11px; padding: 0 12px; background: var(--pc-bg); font-size: 14px; color: var(--pc-ink); outline: 0; }
     .fields input:focus { border-color: color-mix(in srgb, var(--pc-ink) 38%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--pc-ink) 7%, transparent); }
@@ -481,7 +481,7 @@
 
     /* footer */
     .sendrow { display: flex; align-items: center; gap: 10px; }
-    button.send { flex: 1; height: 44px; border-radius: 12px; background: var(--pc-accent); color: var(--pc-on-accent); font-size: 14.5px; font-weight: 650;
+    button.send { flex: 1; height: 44px; border-radius: 12px; background: var(--pc-accent); color: var(--pc-on-accent); font-size: 15px; font-weight: 650;
       display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: filter .15s, transform .05s;
       box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 8px 18px -8px color-mix(in srgb, var(--pc-accent) 70%, transparent); }
     button.send:hover:not(:disabled) { filter: brightness(1.06); }
@@ -506,12 +506,12 @@
     .items .title a { color: var(--pc-muted); font-weight: 550; text-decoration: none; margin-right: 6px; font-variant-numeric: tabular-nums; }
     .items .title a:hover { color: var(--pc-accent); }
     .items .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--pc-muted); }
-    .chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--pc-surface); font-size: 11.5px; font-weight: 600; color: var(--pc-muted); }
+    .chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--pc-surface); font-size: 12px; font-weight: 600; color: var(--pc-muted); }
     .items .reply { font-size: 13px; background: var(--pc-surface); border-radius: 12px 12px 12px 4px; padding: 8px 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .items .done { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; font-weight: 650; color: var(--pc-ok); }
+    .items .done { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 650; color: var(--pc-ok); }
     .items .done .ico { width: 15px; height: 15px; }
     .items li.closed .title { color: var(--pc-muted); }
-    .items .goto { justify-self: start; height: 28px; padding: 0 10px 0 8px; margin-left: -8px; border: 0; background: none; color: var(--pc-muted); font-size: 12.5px; }
+    .items .goto { justify-self: start; height: 28px; padding: 0 10px 0 8px; margin-left: -8px; border: 0; background: none; color: var(--pc-muted); font-size: 12px; }
     .items .goto:hover { background: var(--pc-hover); color: var(--pc-ink); }
     .items .empty { border-style: dashed; text-align: center; color: var(--pc-muted); padding: 22px 12px; }
 
@@ -525,7 +525,7 @@
     .boxcatch { position: fixed; inset: 0; z-index: 2147483645; cursor: crosshair; touch-action: none; }
     .marktools { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 2147483647; display: grid; justify-items: center; gap: 6px; animation: pc-fade .2s; max-width: calc(100vw - 16px); }
     .marktools .bar { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px; padding: 6px; border-radius: 16px; background: var(--pc-bg); box-shadow: var(--pc-shadow); }
-    .marktools .tip { order: -1; padding: 5px 12px; border-radius: 999px; background: var(--pc-ink); font-size: 12.5px; font-weight: 560; box-shadow: var(--pc-shadow); }
+    .marktools .tip { order: -1; padding: 5px 12px; border-radius: 14px; text-align: center; max-width: 440px; background: var(--pc-ink); font-size: 12px; font-weight: 560; box-shadow: var(--pc-shadow); }
     .marktools .tip, .marktools .tip * { color: var(--pc-bg); }
     .marktools .tool .bubble { margin-left: 2px; }
     .marktools .tool:disabled { opacity: .35; }
@@ -542,7 +542,7 @@
     .marklist .num { flex: none; width: 22px; height: 22px; border-radius: 999px; background: var(--pc-accent); font: 700 12px/22px var(--pc-font); text-align: center; }
     .marklist .num { color: var(--pc-on-accent); }
     .marklist .what { flex: 1 1 40%; min-width: 0; display: grid; }
-    .marklist .what b { font: 500 12.5px/1.3 var(--pc-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .marklist .what b { font: 500 12px/1.3 var(--pc-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .marklist .what span { font-size: 12px; color: var(--pc-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .marklist input { flex: 1 1 45%; min-width: 0; height: 32px; border: 1px solid var(--pc-line); border-radius: 9px; padding: 0 10px; background: var(--pc-bg); font-size: 13px; outline: 0; }
     .marklist input:focus { border-color: color-mix(in srgb, var(--pc-ink) 38%, transparent); }
@@ -559,7 +559,7 @@
     .hint { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); z-index: 2147483647; display: flex; align-items: center; gap: 12px;
       padding: 7px 7px 7px 16px; border-radius: 999px; background: var(--pc-ink); box-shadow: var(--pc-shadow); font-size: 13px; font-weight: 560; white-space: nowrap; animation: pc-fade .2s; }
     .hint, .hint * { color: var(--pc-bg); }
-    .hint button { height: 30px; padding: 0 12px; border-radius: 999px; background: color-mix(in srgb, var(--pc-bg) 16%, transparent); font-size: 12.5px; font-weight: 600; }
+    .hint button { height: 30px; padding: 0 12px; border-radius: 999px; background: color-mix(in srgb, var(--pc-bg) 16%, transparent); font-size: 12px; font-weight: 600; }
 
     /* drawing sheet */
     .sheet { position: fixed; inset: 0; z-index: 2147483647; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px;
@@ -592,6 +592,8 @@
     .shortcuts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--pc-muted); }
     .shortcuts .kbd { padding: 3px 6px; }
     .shortcuts button { font-size: 12px; color: var(--pc-muted); text-decoration: underline; text-underline-offset: 2px; }
+    /* Type scale: 11, 12, 13, 14, 15 px. On touch, inputs get 16 px: iOS Safari zooms the page into a smaller input. */
+    @media (pointer: coarse) { textarea, input { font-size: 16px !important; } }
     .shortcuts button:hover { color: var(--pc-ink); }
     .body.voice > .speakwrap { order: -4; } .body.voice > .presets { order: -3; } .body.voice > .field { order: -2; } .body.voice > .kinds { order: -1; }
 
@@ -791,8 +793,20 @@
     };
     const swallow = (e) => { if (e.target !== host) { e.preventDefault(); e.stopPropagation(); } };
     // Inside a modal dialog, Esc is also a close request for the dialog. In mark mode it only ends the marking.
-    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopPicking(); } };
-    const PICK_EVENTS = [['pointermove', onMove], ['click', onPick], ['pointerdown', swallow], ['mousedown', swallow], ['keydown', onKey]];
+    // The keyboard alternative to a tap: Tab moves through the page, Enter or Space marks the focused element instead of pressing it.
+    const focusedPageEl = () => { const el = document.activeElement; return el && el !== host && el !== document.body && el !== document.documentElement ? el : null; };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopPicking(); return; }
+      if (tool !== 'tap' || (e.key !== 'Enter' && e.key !== ' ') || e.composedPath().includes(host)) return;
+      const el = focusedPageEl();
+      if (!el) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleElement(el);
+      showBox(el);
+    };
+    const onFocus = (e) => { if (tool === 'tap' && !e.composedPath().includes(host)) { const el = focusedPageEl(); if (el) showBox(el); } };
+    const PICK_EVENTS = [['pointermove', onMove], ['click', onPick], ['pointerdown', swallow], ['mousedown', swallow], ['keydown', onKey], ['focusin', onFocus]];
 
     // Box tool: drag a region on the page. It is stored in page coordinates, so it stays put when the page scrolls.
     let drag = null;
@@ -819,7 +833,7 @@
     function setMarkTool(next) {
       tool = next;
       for (const [k, b] of Object.entries({ tap: els.toolTap, box: els.toolBox, draw: els.toolDraw })) b.setAttribute('aria-pressed', String(k === next));
-      els.markTip.textContent = { tap: t.hintTap, box: t.hintBox, draw: t.hintDraw }[next];
+      els.markTip.textContent = { tap: matchMedia('(pointer: coarse)').matches ? t.hintTap : `${t.hintTap} ${t.hintKeys}`, box: t.hintBox, draw: t.hintDraw }[next];
       els.boxcatch.hidden = next !== 'box';
       els.box.hidden = true;
     }
@@ -1091,7 +1105,7 @@
 
     // ---- list of open papercuts ----
     let items = [];
-    const openCount = () => items.filter((i) => i.state !== 'closed').length;
+    const listText = () => { const f = items.filter((i) => i.state === 'closed').length; return t.list(items.length - f, f); };
     const seen = () => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {}; } catch (_) { return {}; } };
     const unseen = () => { const s = seen(); return items.filter((i) => i.replyCount > (s[i.issue] || 0)).length; };
     function markSeen() {
@@ -1112,7 +1126,7 @@
       } catch (_) { els.listBtn.hidden = true; return; }
       // No list button while there is nothing to list, unless the list is open now.
       els.listBtn.hidden = !items.length && els.listView.hidden;
-      if (els.listView.hidden) els.listLabel.textContent = t.list(openCount());
+      if (els.listView.hidden) els.listLabel.textContent = listText();
       const n = unseen();
       els.replies.textContent = n ? String(n) : '';
       els.listDot.hidden = !n;
@@ -1149,7 +1163,7 @@
       els.listView.hidden = !on;
       els.form.hidden = on;
       els.foot.hidden = on;
-      els.listLabel.textContent = on ? t.back : t.list(openCount());
+      els.listLabel.textContent = on ? t.back : listText();
       els.listBtn.replaceChild(icon(on ? 'back' : 'list'), els.listBtn.firstChild);
       if (on) { renderList(); markSeen(); } else els.text.focus({ preventScroll: true });
     }

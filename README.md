@@ -1,6 +1,6 @@
 # Papercuts
 
-Papercuts is one place where you and your agents report friction. Each papercut becomes a GitHub issue in the repo of the project.
+Papercuts is one place where you and your agents report friction. Each papercut becomes a GitHub issue in the repo of the project, or a row in a gitignored SQLite file of the repo (the local store).
 
 ## Why
 
@@ -17,13 +17,13 @@ Papercuts is for local sites: dev and review copies on your own machine or home 
 - **CLI.** An agent in a terminal runs `papercuts add tool "..."`. The output follows the [AXI](https://axi.md) rules for agent tools.
 - **Relay.** A small server that holds the GitHub credential, serves the widget, and creates the issues. The browser never sees a token.
 
-Papercuts has no runtime dependencies. It needs Node.js 22 or later.
+Papercuts has no runtime dependencies. It needs Node.js 22.13 or later (the local store uses the built-in `node:sqlite`).
 
 ## Integrate papercuts into an app
 
 This checklist is for the agent or person who adds papercuts to an app. Do the steps in this order:
 
-1. In the repo of the app, run `papercuts init`. It detects the stack, writes `.github/papercuts.json` and the papercuts block in `AGENTS.md`, and prints the exact steps for your stack.
+1. In the repo of the app, run `papercuts init`, or `papercuts init --store local` for the local store (see [Where papercuts go](#where-papercuts-go)). It detects the stack, writes `.github/papercuts.json` and the papercuts block in `AGENTS.md`, and prints the exact steps for your stack.
 2. Add the script tag on the server, only when `PAPERCUTS_URL` is set (see [Load papercuts only where a relay exists](#load-papercuts-only-where-a-relay-exists)).
 3. Add a test: without `PAPERCUTS_URL` the page has no `papercuts`, with it the page has exactly one tag.
 4. Set `PAPERCUTS_URL` only for the copies with a relay, for example the lab and dev copies.
@@ -138,11 +138,12 @@ With `?papercuts=download` in the URL, or `data-mode="download"`, the widget sho
 | Key | Use |
 | --- | --- |
 | `kinds` | The kinds that agents use in this repo. Use the built-in kinds only, so that labels stay the same in all repos. |
-| `fields` | At most 8 extra fields for agents. A field with `options` is a choice, else one line of text. A required field is required for agent reports. People never see the fields. `open({ fields })` can fill them for a person. |
+| `fields` | At most 8 extra fields for agents. A field with `options` is a choice, else one line of text. A required field is required for agent reports. A field with `kinds` belongs to those kinds only, for example `{ "id": "severity", "label": "Severity", "options": ["low", "high"], "kinds": ["bug"] }`. People never see the fields. `open({ fields })` can fill them for a person. |
 | `presets` | At most 12 quick phrases for the widget. One tap fills the sentence and, silently, the kind. |
 | `labels`, `labelsByKind`, `assignees` | Added to each new issue. |
 | `context` | The `localStorage` keys to include, the same as `data-storage` and `data-storage-skip`. |
 | `lang` | The language of the widget when the page sets no `data-lang`. |
+| `store` | `github` (default) or `local`. See [Where papercuts go](#where-papercuts-go). |
 
 A broken part never breaks the page or a report. The relay drops it, uses the default, and lists a warning. `papercuts config` shows the warnings. The schema in `schema/papercuts.schema.json` lets an editor check the file. Page attributes win over the file.
 
@@ -158,6 +159,7 @@ npx github:Tim-Conrad/papercuts            # the open papercuts of this repo
 npx github:Tim-Conrad/papercuts view 12
 npx github:Tim-Conrad/papercuts shot 12    # save the picture of #12 as a PNG
 npx github:Tim-Conrad/papercuts replay 12  # show the page as the reporter saw it
+npx github:Tim-Conrad/papercuts comment 12 "Option A: ... Option B: ..."
 npx github:Tim-Conrad/papercuts done 12 --fix "gh-axi prints the body since commit abc1234"
 npx github:Tim-Conrad/papercuts config     # the ticket config of this repo
 npx github:Tim-Conrad/papercuts init       # set up papercuts in the repo of an app
@@ -185,6 +187,19 @@ Run `papercuts setup` once per machine. It writes `~/.config/papercuts/config.js
 
 ### Where papercuts go
 
+Each repo chooses its store when you integrate papercuts:
+
+| Store | Command | Where papercuts go |
+| --- | --- | --- |
+| GitHub (default) | `papercuts init` | GitHub issues, see the targets below |
+| Local | `papercuts init --store local` | `.papercuts/papercuts.db`, a SQLite file in the main checkout. `init` adds `.papercuts/` to `.gitignore`. |
+
+The local store needs no GitHub account, no credential and no network. Use it for a project without a GitHub remote, for private notes that must not become issues, or offline. `init --store local` writes `"store": "local"` into `.github/papercuts.json`. All commands then read and write the local file: `add`, the home view, the session hook, `list`, `view`, `comment`, `done`, `shot` and `doctor`. A git worktree uses the file of its main checkout. Pictures go to `.papercuts/shots/`. `PAPERCUTS_STORE=github|local` overrides the setting for one command. A `--repo` for another repo always goes to GitHub.
+
+For the widget, start a local relay in the repo folder: `PORT=8787 papercuts serve`. With the local store, the relay accepts the origins `http://localhost:*` and `http://127.0.0.1:*` and any repo name by default. Set `PAPERCUTS_URL=http://localhost:8787` for the dev server.
+
+For the GitHub store, `papercuts setup` chooses the target:
+
 | Target | Command | Where issues go |
 | --- | --- | --- |
 | Per project | `papercuts setup --target per-project` | The repo of the page or of the git remote |
@@ -208,8 +223,11 @@ The relay reads its settings from the environment:
 | Variable | Default | Use |
 | --- | --- | --- |
 | `PORT` | `8000` | The port of the relay. |
-| `PAPERCUTS_ORIGINS` | `https://*.lab.t7d.dev` | Sites that can send reports and read the list. `*` matches one host label or one port. |
-| `PAPERCUTS_REPOS` | `Tim-Conrad/*` | Repos that can receive issues. |
+| `PAPERCUTS_STORE` | the `store` of `.github/papercuts.json` in the folder, else `github` | `github` or `local`. |
+| `PAPERCUTS_HOST` | `0.0.0.0`, local store: `127.0.0.1` | The address that the relay listens on. |
+| `PAPERCUTS_DB` | `.papercuts/papercuts.db` of the main checkout | The SQLite file of the local store. |
+| `PAPERCUTS_ORIGINS` | `https://*.lab.t7d.dev`, local store: `http://localhost:*,http://127.0.0.1:*` | Sites that can send reports and read the list. `*` matches one host label or one port. |
+| `PAPERCUTS_REPOS` | `Tim-Conrad/*`, local store: `*/*` | Repos that can receive issues. |
 | `PAPERCUTS_TARGET` | `per-project` | `per-project` or `central`. |
 | `PAPERCUTS_CENTRAL_REPO` | none | The inbox repo for the central target. |
 | `PAPERCUTS_CREDENTIAL` | `gh`, or `file` if a token file is set | `gh` or `file`. |

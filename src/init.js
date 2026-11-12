@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONFIG_PATH, checkConfigText } from './ticket.js';
+import { checkouts, localRepoName, readStoreSetting, STORE_DIR, DB_NAME } from './store.js';
 
 const AGENTS_SRC = fileURLToPath(new URL('../AGENTS.md', import.meta.url));
 const SCHEMA_URL = 'https://raw.githubusercontent.com/Tim-Conrad/papercuts/main/schema/papercuts.schema.json';
@@ -89,25 +90,93 @@ function agentsBlock() {
   return src.split('```markdown\n')[1].split('\n```')[0];
 }
 
-export function initRepo(dir, repo, env = {}) {
+const BEGIN = '<!-- papercuts:begin -->';
+const END = '<!-- papercuts:end -->';
+// Lines of a papercuts block that an older version wrote without markers. Anything else is the user's text.
+const OLD_LINE = /^(\s*$|- |  |Report friction|### Integration\s*$)/;
+
+// Put the current block into AGENTS.md. Markers keep the block apart from the user's text.
+// A block without markers (papercuts 0.3 or older) ends at the first line that it never contained.
+export function placeBlock(text, block) {
+  const crlf = text.includes('\r\n');
+  const t = text.replace(/\r\n/g, '\n');
+  const marked = `${BEGIN}\n${block}\n${END}`;
+  const eol = (x) => (crlf ? x.replace(/\n/g, '\r\n') : x);
+  const b = t.indexOf(BEGIN);
+  const e = t.indexOf(END, b);
+  if (b >= 0 && e > b) {
+    if (t.slice(b, e + END.length) === marked) return { text, status: 'has the current papercuts block, not changed' };
+    return { text: eol(t.slice(0, b) + marked + t.slice(e + END.length)), status: 'updated the papercuts block' };
+  }
+  const lines = t.split('\n');
+  let fence = false;
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) fence = !fence;
+    else if (!fence && /^## Papercuts[ \t]*$/.test(lines[i])) { start = i; break; }
+  }
+  if (start < 0) {
+    const body = t ? `${t.replace(/\n*$/, '')}\n\n${marked}\n` : `# Agents\n\n${marked}\n`;
+    return { text: eol(body), status: t ? 'added the papercuts block' : 'created with the papercuts block' };
+  }
+  let end = start + 1;
+  for (let j = start + 1; j < lines.length && OLD_LINE.test(lines[j]); j++) if (lines[j].trim()) end = j + 1;
+  const rest = lines.slice(end).join('\n').replace(/^\n+/, '');
+  const out = [...lines.slice(0, start), marked].join('\n') + (rest ? `\n\n${rest}` : '\n');
+  return { text: eol(out), status: 'updated the papercuts block' };
+}
+
+const IGNORE = `${STORE_DIR}/`;
+
+// Add .papercuts/ to the .gitignore of the checkout. The database must never go into git.
+function ignoreStore(top, name = '.gitignore') {
+  mkdirSync(top, { recursive: true });
+  const file = join(top, name);
+  const text = read(top, name);
+  if (text.split('\n').some((l) => [IGNORE, STORE_DIR, `/${IGNORE}`, `/${STORE_DIR}`].includes(l.trim()))) return `has ${IGNORE}, not changed`;
+  writeFileSync(file, (text && !text.endsWith('\n') ? `${text}\n` : text) + `${IGNORE}\n`);
+  return text ? `added ${IGNORE}` : `created with ${IGNORE}`;
+}
+
+export function initRepo(cwd, repo, env = {}, { store: wanted } = {}) {
+  // The config, AGENTS.md and .gitignore belong at the top of the checkout, where storeFor reads them.
+  const { top: dir, main, common } = checkouts(cwd);
+  const top = dir;
   const stack = detectStack(dir);
+  const cfgFile = join(dir, CONFIG_PATH);
+  const store = wanted || readStoreSetting(dir) || 'github';
+  if (!repo && store === 'local') repo = localRepoName(main);
   const out = { stack, repo: repo || 'unknown (no git remote "origin")' };
 
-  const cfgFile = join(dir, CONFIG_PATH);
-  if (existsSync(cfgFile)) out[CONFIG_PATH] = 'exists, not changed';
-  else {
+  if (!existsSync(cfgFile)) {
     mkdirSync(join(dir, '.github'), { recursive: true });
-    writeFileSync(cfgFile, JSON.stringify(starterConfig(), null, 2) + '\n');
+    writeFileSync(cfgFile, JSON.stringify({ ...starterConfig(), ...(store === 'local' ? { store } : {}) }, null, 2) + '\n');
     out[CONFIG_PATH] = 'created (edit kinds, fields, presets, labels)';
+  } else if (wanted && readStoreSetting(dir) !== wanted && !(wanted === 'github' && !readStoreSetting(dir))) {
+    // An explicit --store changes only that key. A broken file stays as it is, and the check below names the problem.
+    try {
+      const raw = JSON.parse(readFileSync(cfgFile, 'utf8'));
+      writeFileSync(cfgFile, JSON.stringify({ ...raw, store: wanted }, null, 2) + '\n');
+      out[CONFIG_PATH] = `set "store": "${wanted}"`;
+    } catch {
+      out[CONFIG_PATH] = 'is not valid JSON, not changed';
+    }
+  } else out[CONFIG_PATH] = 'exists, not changed';
+
+  out.store = store === 'local'
+    ? `local: ${STORE_DIR}/${DB_NAME} in ${main === dir ? 'this checkout' : main}, gitignored, no GitHub`
+    : `github: each papercut is an issue in ${repo || 'the repo'}`;
+  if (store === 'local') {
+    out['.gitignore'] = ignoreStore(top);
+    // A worktree shares the database of the main checkout. info/exclude of the shared git folder covers every worktree.
+    if (main !== top && common) out['info/exclude'] = ignoreStore(join(common, 'info'), 'exclude');
   }
 
-  const agents = join(dir, 'AGENTS.md');
-  const text = read(dir, 'AGENTS.md');
-  if (/^## Papercuts$/m.test(text)) out['AGENTS.md'] = 'has the papercuts block, not changed';
-  else {
-    writeFileSync(agents, (text ? `${text.replace(/\n*$/, '')}\n\n` : '# Agents\n\n') + agentsBlock() + '\n');
-    out['AGENTS.md'] = text ? 'added the papercuts block' : 'created with the papercuts block';
-  }
+  const agents = join(top, 'AGENTS.md');
+  const text = read(top, 'AGENTS.md');
+  const placed = placeBlock(text, agentsBlock());
+  if (placed.text !== text) writeFileSync(agents, placed.text);
+  out['AGENTS.md'] = placed.status;
 
   const name = repo || 'owner/name';
   out.tag = `<script src="$PAPERCUTS_URL/papercuts.js" data-repo="${name}"></script>`;
@@ -115,11 +184,15 @@ export function initRepo(dir, repo, env = {}) {
   const check = checkConfigText(read(dir, CONFIG_PATH));
   out.check = check.warnings.length ? `${CONFIG_PATH} has warnings` : `${CONFIG_PATH} has no warnings`;
   if (check.warnings.length) out.warnings = check.warnings;
+  const relayStep = store === 'local'
+    ? 'Start the local relay in this folder: `PORT=8787 papercuts serve`. Then set PAPERCUTS_URL=http://localhost:8787 for the dev server only. Reports from the page go to the local file.'
+    : 'Set PAPERCUTS_URL (for example https://papercuts.lab.example.com) only in the compose files of the lab and dev copies. A published copy has no PAPERCUTS_URL and so no tag.';
   out.steps = [
     ...STEPS[stack],
-    'Set PAPERCUTS_URL (for example https://papercuts.lab.example.com) only in the compose files of the lab and dev copies. A published copy has no PAPERCUTS_URL and so no tag.',
+    relayStep,
     'Add a test: without PAPERCUTS_URL the page has no "papercuts"; with it, the page has exactly one tag.',
-    `Commit ${CONFIG_PATH} and AGENTS.md, then run \`papercuts config --check\` after the push.`,
+    store === 'local' ? `Commit ${CONFIG_PATH}, AGENTS.md and .gitignore. Run \`papercuts doctor\` to check the local store.`
+      : `Commit ${CONFIG_PATH} and AGENTS.md, then run \`papercuts config --check\` after the push.`,
   ];
   out.help = [`Run \`papercuts config --file ${CONFIG_PATH}\` after each change of the config`, `Read ${README}`];
   return out;
