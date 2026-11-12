@@ -35,7 +35,7 @@
       markPic: 'Mark picture', markScreen: 'Mark screen', mic: 'Speak', micStop: 'Stop', pen: 'Pen', pin: 'Pin',
       undo: 'Undo', clear: 'Clear', cancel: 'Cancel', done: 'Done', pinText: 'What is at this pin?', removePic: 'Remove picture',
       cannotMark: 'This picture cannot be marked (it comes from another site).', noScreen: 'No screen picture: ',
-      list: (n) => `${n} open`, back: 'New papercut', pickedSub: 'Picked element', pins: (n) => `${n} ${n === 1 ? 'pin' : 'pins'}`, picture: 'Marked picture', cancelPick: 'Cancel', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
+      list: (o, f) => [o || !f ? `${o} open` : '', f ? `${f} fixed` : ''].filter(Boolean).join(' · '), back: 'New papercut', pickedSub: 'Picked element', pins: (n) => `${n} ${n === 1 ? 'pin' : 'pins'}`, picture: 'Marked picture', cancelPick: 'Cancel', goto: 'Go to place', replies: (n) => ` · ${n} new ${n === 1 ? 'reply' : 'replies'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'reply' : 'replies'}`, empty: 'No open papercuts.', age: (d) => (d < 1 ? 'today' : `${d} d ago`),
       fixed: 'Fixed', required: 'required', fieldRequired: (l) => `Fill in “${l}”, it is required.`, speak: 'Tap to speak', listening: 'Listening… tap to stop', typeInstead: 'or type below',
       toolTap: 'Tap', toolBox: 'Box', toolDraw: 'Draw', markDone: 'Done', note: 'Note (optional)', region: (w, h) => `Region ${w}×${h}`,
@@ -57,7 +57,7 @@
       markPic: 'Bild markieren', markScreen: 'Bildschirm markieren', mic: 'Sprechen', micStop: 'Stopp', pen: 'Stift', pin: 'Nummer',
       undo: 'Zurück', clear: 'Leeren', cancel: 'Abbrechen', done: 'Fertig', pinText: 'Was ist an dieser Nummer?', removePic: 'Bild entfernen',
       cannotMark: 'Dieses Bild lässt sich nicht markieren (es kommt von einer anderen Seite).', noScreen: 'Kein Bildschirmfoto: ',
-      list: (n) => `${n} offen`, back: 'Neuer Papercut', pickedSub: 'Gewähltes Element', pins: (n) => `${n} ${n === 1 ? 'Nummer' : 'Nummern'}`, picture: 'Markiertes Bild', cancelPick: 'Abbrechen', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
+      list: (o, f) => [o || !f ? `${o} offen` : '', f ? `${f} behoben` : ''].filter(Boolean).join(' · '), back: 'Neuer Papercut', pickedSub: 'Gewähltes Element', pins: (n) => `${n} ${n === 1 ? 'Nummer' : 'Nummern'}`, picture: 'Markiertes Bild', cancelPick: 'Abbrechen', goto: 'Zur Stelle', replies: (n) => ` · ${n} neue ${n === 1 ? 'Antwort' : 'Antworten'}`,
       replyCount: (n) => `${n} ${n === 1 ? 'Antwort' : 'Antworten'}`, empty: 'Keine offenen Papercuts.', age: (d) => (d < 1 ? 'heute' : `vor ${d} T.`),
       fixed: 'Behoben', required: 'Pflicht', fieldRequired: (l) => `Fülle „${l}“ aus, das ist Pflicht.`, speak: 'Tippen und sprechen', listening: 'Ich höre zu… tippen zum Beenden', typeInstead: 'oder unten tippen',
       toolTap: 'Tippen', toolBox: 'Rahmen', toolDraw: 'Zeichnen', markDone: 'Fertig', note: 'Notiz (optional)', region: (w, h) => `Bereich ${w}×${h}`,
@@ -1091,7 +1091,7 @@
 
     // ---- list of open papercuts ----
     let items = [];
-    const openCount = () => items.filter((i) => i.state !== 'closed').length;
+    const listText = () => { const f = items.filter((i) => i.state === 'closed').length; return t.list(items.length - f, f); };
     const seen = () => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {}; } catch (_) { return {}; } };
     const unseen = () => { const s = seen(); return items.filter((i) => i.replyCount > (s[i.issue] || 0)).length; };
     function markSeen() {
@@ -1112,7 +1112,7 @@
       } catch (_) { els.listBtn.hidden = true; return; }
       // No list button while there is nothing to list, unless the list is open now.
       els.listBtn.hidden = !items.length && els.listView.hidden;
-      if (els.listView.hidden) els.listLabel.textContent = t.list(openCount());
+      if (els.listView.hidden) els.listLabel.textContent = listText();
       const n = unseen();
       els.replies.textContent = n ? String(n) : '';
       els.listDot.hidden = !n;
@@ -1149,7 +1149,7 @@
       els.listView.hidden = !on;
       els.form.hidden = on;
       els.foot.hidden = on;
-      els.listLabel.textContent = on ? t.back : t.list(openCount());
+      els.listLabel.textContent = on ? t.back : listText();
       els.listBtn.replaceChild(icon(on ? 'back' : 'list'), els.listBtn.firstChild);
       if (on) { renderList(); markSeen(); } else els.text.focus({ preventScroll: true });
     }
