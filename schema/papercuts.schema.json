@@ -51,6 +51,7 @@
         "skipStorage": { "description": "Keys to leave out with [\"*\"].", "type": "array", "items": { "type": "string" } }
       }
     },
-    "lang": { "description": "The language of the widget when the page sets no data-lang.", "type": "string", "pattern": "^[a-z]{2}(-[A-Za-z]{2})?$" }
+    "lang": { "description": "The language of the widget when the page sets no data-lang.", "type": "string", "pattern": "^[a-z]{2}(-[A-Za-z]{2})?$" },
+    "store": { "description": "Where papercuts go: github (issues, the default) or local (a gitignored SQLite file, .papercuts/papercuts.db).", "enum": ["github", "local"], "default": "github" }
   }
 }

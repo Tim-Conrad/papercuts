@@ -513,3 +513,13 @@ test('init replaces an outdated papercuts block and keeps the rest of AGENTS.md 
   assert.match(again.out, /^AGENTS\.md: has the current papercuts block, not changed$/m);
   assert.equal(readFileSync(join(cwd, 'AGENTS.md'), 'utf8'), text);
 });
+
+test('comment adds a comment to the issue, with secrets redacted', async () => {
+  await cli('add', 'rule', 'Two rules disagree');
+  const r = await cli('comment', '1', 'Option A or B, token ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^papercut: comment added to #1$/m);
+  const body = gh.state.issues['Tim-Conrad/shop'][0].commentList.at(-1);
+  assert.match(body, /^Option A or B/);
+  assert.ok(!body.includes('ghp_abcdefghij'), body);
+});

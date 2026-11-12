@@ -38,7 +38,9 @@ export function repoAllowed(repo, repos) {
   });
 }
 
-export function loadConfig(env = process.env, file = {}) {
+// With the local store, the relay runs next to a dev server: localhost origins and any repo name by default.
+export function loadConfig(env = process.env, file = {}, { store = 'github' } = {}) {
+  const local = store === 'local';
   const mode = env.PAPERCUTS_TARGET || file.target || 'per-project';
   if (!['per-project', 'central'].includes(mode)) throw new Error(`PAPERCUTS_TARGET must be per-project or central, not "${mode}"`);
   const target = { mode };
@@ -51,8 +53,9 @@ export function loadConfig(env = process.env, file = {}) {
   if (!['gh', 'file'].includes(source)) throw new Error(`PAPERCUTS_CREDENTIAL must be gh or file, not "${source}"`);
   if (source === 'file' && !tokenFile) throw new Error('the file credential needs PAPERCUTS_TOKEN_FILE');
   return {
-    origins: list(env.PAPERCUTS_ORIGINS || 'https://*.lab.t7d.dev'),
-    repos: list(env.PAPERCUTS_REPOS || 'Tim-Conrad/*'),
+    origins: list(env.PAPERCUTS_ORIGINS || (local ? 'http://localhost:*,http://127.0.0.1:*' : 'https://*.lab.t7d.dev')),
+    repos: list(env.PAPERCUTS_REPOS || (local ? '*/*' : 'Tim-Conrad/*')),
+    store,
     target,
     credential: source === 'file' ? { source: 'file', path: tokenFile } : { source: 'gh', ...(env.PAPERCUTS_GH_MOUNT ? { mount: env.PAPERCUTS_GH_MOUNT } : {}) },
     port: Number(env.PORT || 8000),

@@ -1,13 +1,13 @@
 {
   "name": "papercuts",
   "version": "0.3.0",
-  "description": "One place where you and your agents report friction. Each papercut is a GitHub issue.",
+  "description": "One place where you and your agents report friction. Each papercut is a GitHub issue, or a row in a local file.",
   "type": "module",
   "license": "MIT",
   "author": "Tim Conrad",
   "repository": "github:Tim-Conrad/papercuts",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "test": "node --test test/*.test.js",

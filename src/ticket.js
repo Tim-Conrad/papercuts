@@ -5,11 +5,11 @@ import { WIDGET_KINDS, KINDS, redact, shorten } from './format.js';
 export const CONFIG_PATH = '.github/papercuts.json';
 const FIELD_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
-const KNOWN = ['$schema', 'kinds', 'fields', 'presets', 'labels', 'labelsByKind', 'assignees', 'context', 'lang'];
+const KNOWN = ['$schema', 'kinds', 'fields', 'presets', 'labels', 'labelsByKind', 'assignees', 'context', 'lang', 'store'];
 const LIMITS = { fields: 8, options: 20, presets: 12, labels: 10, label: 50, assignees: 5, text: 300, keys: 50 };
 
 export function defaultConfig() {
-  return { kinds: [...WIDGET_KINDS], fields: [], presets: [], labels: [], labelsByKind: {}, assignees: [], context: {}, lang: '' };
+  return { kinds: [...WIDGET_KINDS], fields: [], presets: [], labels: [], labelsByKind: {}, assignees: [], context: {}, lang: '', store: 'github' };
 }
 
 const str = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : '');
@@ -108,6 +108,11 @@ export function checkConfig(raw) {
   if (raw.lang !== undefined) {
     if (typeof raw.lang === 'string' && /^[a-z]{2}(-[A-Za-z]{2})?$/.test(raw.lang)) config.lang = raw.lang;
     else warn('lang must be a language code, for example "en" or "de"');
+  }
+
+  if (raw.store !== undefined) {
+    if (raw.store === 'github' || raw.store === 'local') config.store = raw.store;
+    else warn('store must be "github" or "local" (local: a gitignored SQLite file in .papercuts/)');
   }
   return { config, warnings };
 }
