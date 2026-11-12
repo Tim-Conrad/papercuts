@@ -1,5 +1,5 @@
 // papercuts init: set up papercuts in the repo of an app. It never overwrites a file.
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONFIG_PATH, checkConfigText } from './ticket.js';
@@ -11,10 +11,13 @@ const SCHEMA_URL = 'https://raw.githubusercontent.com/Tim-Conrad/papercuts/main/
 const read = (dir, f) => { try { return readFileSync(join(dir, f), 'utf8'); } catch { return ''; } };
 
 export function detectStack(dir) {
-  const pyDirs = ['', 'backend/', 'app/', 'server/', 'api/'];
+  // The app can sit in any first-level folder (backend/, app/, admin/ ...), next to an nginx.conf of another part.
+  let sub = [];
+  try { sub = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules').map((d) => `${d.name}/`); } catch { /* no folder list */ }
+  const pyDirs = ['', ...sub];
   const py = pyDirs.map((d) => read(dir, `${d}requirements.txt`) + read(dir, `${d}pyproject.toml`)).join('');
   // Server-rendered pages: the tag goes into the base template, so that every page gets it.
-  const templates = ['templates', 'app/templates', 'backend/templates', 'src/templates'].some((d) => existsSync(join(dir, d)));
+  const templates = pyDirs.some((d) => existsSync(join(dir, d, 'templates')));
   if (/fastapi/i.test(py)) return /jinja2/i.test(py) || templates ? 'fastapi-jinja' : 'fastapi';
   const pkg = read(dir, 'package.json') + read(dir, 'frontend/package.json') + read(dir, 'web/package.json');
   if (/"vite"/.test(pkg)) return 'vite';
@@ -86,7 +89,6 @@ const STEPS = {
 export function starterConfig() {
   return {
     $schema: SCHEMA_URL,
-    kinds: ['bug', 'ux', 'copy', 'idea', 'other'],
     fields: [
       { id: 'expected', label: 'What did you expect?', required: false },
     ],

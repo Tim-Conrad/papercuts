@@ -533,3 +533,17 @@ test('init finds FastAPI in app/ and prints the Jinja template code for server-r
   assert.match(r.out, /\{% if papercuts_url\(\) %\}<script src="\{\{ papercuts_url\(\) \}\}\/papercuts\.js" data-repo="Tim-Conrad\/shop"><\/script>\{% endif %\}/);
   assert.match(r.out, /base\.html/);
 });
+
+test('init finds a FastAPI app in any first-level folder before an nginx.conf at the top (papercut #20)', async () => {
+  writeFileSync(join(cwd, 'nginx.conf'), 'server {}');
+  mkdirSync(join(cwd, 'admin'));
+  writeFileSync(join(cwd, 'admin', 'requirements.txt'), 'fastapi\nuvicorn\n');
+  const r = await cli('init');
+  assert.match(r.out, /^stack: fastapi$/m);
+});
+
+test('the starter config sets no kinds, so that agent kinds like tool stay allowed', async () => {
+  await cli('init');
+  const cfg = JSON.parse(readFileSync(join(cwd, '.github', 'papercuts.json'), 'utf8'));
+  assert.equal(cfg.kinds, undefined);
+});
