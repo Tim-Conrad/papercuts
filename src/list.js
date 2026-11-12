@@ -30,7 +30,8 @@ function describe(client, repo, issues) {
       kind: (names.find((n) => n.startsWith('kind:')) || 'kind:other').slice(5),
       from: (names.find((n) => n.startsWith('from:')) || 'from:human').slice(5),
       title: String(i.title).replace(/^papercut: /, ''),
-      url: i.html_url,
+      // Only a web link goes to the page. The local store links to a file on this host, which a page must not see.
+      url: /^https?:\/\//.test(i.html_url || '') ? i.html_url : '',
       created: i.created_at,
       where: (String(i.body).match(/^where: (.*)$/m) || [])[1] || '',
       place: parseMarkers(i.body).place,
