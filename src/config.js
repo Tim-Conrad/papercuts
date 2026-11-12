@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-export const VERSION = '0.2.2';
+export const VERSION = '0.3.0';
 
 export function configPath(env = process.env) {
   return join(env.PAPERCUTS_CONFIG_DIR || join(env.HOME || homedir(), '.config', 'papercuts'), 'config.json');

@@ -581,6 +581,14 @@ def mark_checks(browser, ctl, page_url, width):
     host.locator("button.pick").click()
     page.keyboard.press("Escape")
     check(f"{width}: Esc leaves mark mode for the panel", host.locator(".panel").is_visible() and host.locator(".marktools").is_hidden())
+    host.locator("button.close").click()
+    page.evaluate("window.papercutsContext = (el) => ({ about: el ? el.id : 'none' })")
+    page.evaluate("papercuts.open({ text: 'open with marks', marks: ['#buy', document.getElementById('title'), '#missing'] })")
+    check(f"{width}: open() attaches marks by selector or element", host.locator(".marklist li").count() == 2, str(host.locator(".marklist li").count()))
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    body = issues(ctl)[-1]["body"]
+    check(f"{width}: papercutsContext gets the first marked element", "about: buy" in body, body[:600])
     check(f"{width}: no page errors in mark checks", not errors, "; ".join(errors))
     ctx.close()
 

@@ -160,7 +160,7 @@ test('subcommand help', async () => {
 
 test('version fast path', () => {
   for (const flag of ['-v', '-V', '--version']) {
-    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.2.2\n');
+    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.3.0\n');
   }
 });
 
@@ -447,4 +447,53 @@ test('replay prints the marks', async () => {
   const n = issueWith(`x\n\n<!-- papercut-place: ${encodeURIComponent(JSON.stringify(place))} -->\n`);
   const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n));
   assert.match(r.out, /marks: 1 #buy, 2 box 3x4 at 1,2/);
+});
+
+test('the package ships replay and the schema', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const dir of ['bin', 'src', 'widget', 'replay', 'schema', 'skills', 'AGENTS.md']) assert.ok(pkg.files.includes(dir), dir);
+});
+
+test('config --file checks a local file offline', async () => {
+  const f = join(cwd, 'p.json');
+  writeFileSync(f, JSON.stringify({ fields: [{ id: 'expected', label: 'Expected?' }] }));
+  const n = gh.state.requests.length;
+  let r = await cli('config', '--file', f);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^config: .*p\.json \(local file\)$/m);
+  assert.equal(gh.state.requests.length, n);
+  writeFileSync(f, '{ broken');
+  r = await cli('config', '--file', f, '--check');
+  assert.equal(r.code, 1);
+  assert.match(r.out, /not valid JSON/);
+  r = await cli('config', '--file', join(cwd, 'missing.json'));
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^error: cannot read/m);
+});
+
+test('init prints code for the stack, checks the config, and explains the integration', async () => {
+  const { mkdtempSync: mk, mkdirSync: md } = await import('node:fs');
+  const dir = mk(join(tmpdir(), 'pc-init2-'));
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:Tim-Conrad/shop.git'], { cwd: dir });
+  md(join(dir, 'frontend'));
+  writeFileSync(join(dir, 'frontend', 'package.json'), '{"devDependencies":{"vite":"6"}}');
+  let out = '';
+  const code = await run(['init'], { env: { HOME: home }, cwd: dir, client, stdout: { write: (s) => { out += s; } } });
+  assert.equal(code, 0, out);
+  assert.match(out, /^stack: vite$/m);
+  assert.match(out, /^snippet\[\d+\]:/m);
+  assert.match(out, /^check: \.github\/papercuts\.json has no warnings$/m);
+  assert.match(out, /github\.com\/Tim-Conrad\/papercuts#integrate-papercuts-into-an-app/);
+  const cfg = JSON.parse(readFileSync(join(dir, '.github', 'papercuts.json'), 'utf8'));
+  assert.equal(cfg.fields.length, 1);
+  assert.equal(cfg.fields[0].required, false);
+  const agents = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+  for (const s of ['.github/papercuts.json', 'papercutsContext', 'PAPERCUTS_URL', 'papercuts config']) assert.ok(agents.includes(s), s);
+});
+
+test('init prints the FastAPI code that avoids the 304 trap', async () => {
+  writeFileSync(join(cwd, 'requirements.txt'), 'fastapi\n');
+  const r = await cli('init');
+  assert.match(r.out, /HTMLResponse/);
 });

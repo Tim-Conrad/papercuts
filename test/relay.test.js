@@ -99,7 +99,7 @@ test('body too large', async () => {
 test('status and healthz', async () => {
   const s = await (await fetch(base + '/status', { headers: { origin: ALLOWED } })).json();
   assert.equal(s.ok, true);
-  assert.equal(s.version, '0.2.2');
+  assert.equal(s.version, '0.3.0');
   assert.equal(await (await fetch(base + '/healthz')).text(), 'ok');
 });
 

@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG_PATH } from './ticket.js';
+import { CONFIG_PATH, checkConfigText } from './ticket.js';
 
 const AGENTS_SRC = fileURLToPath(new URL('../AGENTS.md', import.meta.url));
 const SCHEMA_URL = 'https://raw.githubusercontent.com/Tim-Conrad/papercuts/main/schema/papercuts.schema.json';
@@ -12,13 +12,43 @@ const read = (dir, f) => { try { return readFileSync(join(dir, f), 'utf8'); } ca
 export function detectStack(dir) {
   const py = read(dir, 'requirements.txt') + read(dir, 'pyproject.toml') + read(dir, 'backend/pyproject.toml') + read(dir, 'backend/requirements.txt');
   if (/fastapi/i.test(py)) return 'fastapi';
-  const pkg = read(dir, 'package.json');
+  const pkg = read(dir, 'package.json') + read(dir, 'frontend/package.json') + read(dir, 'web/package.json');
   if (/"vite"/.test(pkg)) return 'vite';
   if (/"express"/.test(pkg)) return 'express';
   if (existsSync(join(dir, 'nginx.conf')) || /^FROM\s+nginx/im.test(read(dir, 'Dockerfile'))) return 'nginx';
   if (existsSync(join(dir, 'index.html'))) return 'static';
   return 'unknown';
 }
+
+const README = 'https://github.com/Tim-Conrad/papercuts#integrate-papercuts-into-an-app';
+
+// Working code for each stack. REPO is replaced with the repo of the app.
+const SNIPPETS = {
+  fastapi: `import os
+from fastapi.responses import HTMLResponse
+
+@app.get("/")  # serve index.html yourself; a FileResponse 304 would keep a cached copy without the tag
+def index():
+    html = (STATIC_DIR / "index.html").read_text()
+    if url := os.environ.get("PAPERCUTS_URL"):
+        html = html.replace("</head>", f'<script src="{url}/papercuts.js" data-repo="REPO"></script></head>', 1)
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})`,
+  express: `app.get('/', (req, res) => {
+  let html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
+  const url = process.env.PAPERCUTS_URL;
+  if (url) html = html.replace('</head>', \`<script src="\${url}/papercuts.js" data-repo="REPO"></script></head>\`);
+  res.set('Cache-Control', 'no-cache').type('html').send(html);
+});`,
+  nginx: `# /etc/nginx/templates/papercuts.conf.template (the official image fills in \${PAPERCUTS_URL})
+sub_filter '</head>' '<script src="\${PAPERCUTS_URL}/papercuts.js" data-repo="REPO"></script></head>';
+sub_filter_once on;
+# entrypoint: include this file only when PAPERCUTS_URL is not empty`,
+};
+SNIPPETS.vite = `# Add the tag where the server delivers the built index.html, not in the Vite build.
+# With nginx in front:
+${SNIPPETS.nginx}`;
+SNIPPETS.static = SNIPPETS.nginx;
+SNIPPETS.unknown = SNIPPETS.fastapi;
 
 const STEPS = {
   fastapi: [
@@ -42,7 +72,9 @@ export function starterConfig() {
   return {
     $schema: SCHEMA_URL,
     kinds: ['bug', 'ux', 'copy', 'idea', 'other'],
-    fields: [],
+    fields: [
+      { id: 'expected', label: 'What did you expect?', required: false },
+    ],
     presets: [
       { kind: 'bug', text: 'This does not work' },
       { kind: 'ux', text: 'This is hard to use on the phone' },
@@ -79,12 +111,16 @@ export function initRepo(dir, repo, env = {}) {
 
   const name = repo || 'owner/name';
   out.tag = `<script src="$PAPERCUTS_URL/papercuts.js" data-repo="${name}"></script>`;
+  out.snippet = SNIPPETS[stack].replaceAll('REPO', name).split('\n');
+  const check = checkConfigText(read(dir, CONFIG_PATH));
+  out.check = check.warnings.length ? `${CONFIG_PATH} has warnings` : `${CONFIG_PATH} has no warnings`;
+  if (check.warnings.length) out.warnings = check.warnings;
   out.steps = [
     ...STEPS[stack],
     'Set PAPERCUTS_URL (for example https://papercuts.lab.example.com) only in the compose files of the lab and dev copies. A published copy has no PAPERCUTS_URL and so no tag.',
     'Add a test: without PAPERCUTS_URL the page has no "papercuts"; with it, the page has exactly one tag.',
     `Commit ${CONFIG_PATH} and AGENTS.md, then run \`papercuts config --check\` after the push.`,
   ];
-  out.help = ['Run `papercuts config` to see the config that the relay uses', 'Read the README section "Integrate papercuts into an app"'];
+  out.help = [`Run \`papercuts config --file ${CONFIG_PATH}\` after each change of the config`, `Read ${README}`];
   return out;
 }

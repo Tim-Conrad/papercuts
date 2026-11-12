@@ -147,11 +147,16 @@ export async function loadRepoConfig(client, repo) {
     throw e;
   }
   if (text == null) return { found: false, ...checkConfig({}) };
+  return { found: true, ...checkConfigText(text) };
+}
+
+// The same check for the text of a file, for example a local file before the push.
+export function checkConfigText(text) {
   let raw;
   try { raw = JSON.parse(text); } catch (e) {
-    return { found: true, config: defaultConfig(), warnings: [`${CONFIG_PATH} is not valid JSON: ${e.message}`] };
+    return { config: defaultConfig(), warnings: [`${CONFIG_PATH} is not valid JSON: ${e.message}`] };
   }
-  return { found: true, ...checkConfig(raw) };
+  return checkConfig(raw);
 }
 
 // Labels and assignees of the config for one report.

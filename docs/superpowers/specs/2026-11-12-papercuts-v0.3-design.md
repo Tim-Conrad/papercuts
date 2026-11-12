@@ -82,3 +82,28 @@ My call: on a touch device with speech input, the sheet leads with a large round
 - A long press with two fingers (600 ms) on touch opens the panel. `data-gesture="off"` turns it off. My call: no shake gesture, because iOS asks for a motion permission.
 - Presets from the config show as chips above the text field. On a phone, a preset plus Send is two taps.
 - `window.papercuts.open({ kind, text })` opens the panel with a draft, so that an app can add its own button or menu entry.
+
+## 5. Later decisions by Tim (2026-11-12)
+
+- "Make sure that the user only needs to feedback ... The tickets will be handled by agents they do not need a bug category. Probably one input window is enough, with voice input."
+  - The panel is one input with voice. People choose no kind (filed as `other`) and see no fields.
+  - Required fields of the ticket config apply only to agent reports.
+  - The element touched last before opening is attached by itself.
+- Annotating parts and pictures, several elements: Tim chose "Auto + Mark mode".
+  - Mark mode on the live page: Tap (elements), Box (regions), Draw (a picture in the drawing sheet), numbered frames, optional notes.
+  - The issue lists the marks. `place.marks` lets replay frame each one.
+- Offline: Tim chose "browser only". Reports wait in IndexedDB until the relay answers. No relay outbox, and no self-hosted widget copy.
+
+## 6. The UX review (Opus, 2026-11-12)
+
+All "must fix" items are done:
+- focus trap, Esc, ARIA
+- accent contrast 4.9:1
+- 44 px touch targets
+- the log-in state, and a warning when the relay does not answer
+- plain speech errors
+- the success view
+- shortcuts shown in the panel
+- `config --file` → see note below
+
+Follow-ups: fields per kind, severity, placeholders, a phone screen capture, a keyboard alternative to picking, fewer type sizes.

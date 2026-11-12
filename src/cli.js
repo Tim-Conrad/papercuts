@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { toon } from './toon.js';
 import { openPapercuts } from './list.js';
-import { loadRepoConfig, normalizeFields, CONFIG_PATH } from './ticket.js';
+import { loadRepoConfig, normalizeFields, checkConfigText, CONFIG_PATH } from './ticket.js';
 import { initRepo } from './init.js';
 import { normalizeReport, redact, shorten, parseMarkers, KINDS } from './format.js';
 import { execFile } from 'node:child_process';
@@ -60,12 +60,12 @@ const COMMANDS = {
     examples: ['papercuts done 12 --fix "gh-axi pr view prints the body since commit abc1234"'],
   },
   config: {
-    usage: 'papercuts config [--check] [--repo <owner/name>]',
+    usage: 'papercuts config [--file <path>] [--check] [--repo <owner/name>]',
     about: 'Show the ticket config of the repo (.github/papercuts.json): kinds, fields, presets, labels, warnings.',
     args: [],
-    flags: { check: 'bool', repo: 'string' },
-    defaults: ['--check: exit 1 if the config has a warning (for CI)', 'reads the default branch on GitHub, like the relay'],
-    examples: ['papercuts config', 'papercuts config --check'],
+    flags: { check: 'bool', repo: 'string', file: 'string' },
+    defaults: ['--check: exit 1 if the config has a warning (for CI)', '--file: check a local file offline, before the push', 'without --file: reads the default branch on GitHub, like the relay'],
+    examples: ['papercuts config', 'papercuts config --file .github/papercuts.json --check', 'papercuts config --check'],
   },
   init: {
     usage: 'papercuts init',
@@ -245,6 +245,19 @@ If a papercut needs a decision from Tim, do not close it. Write two or three opt
 `;
 }
 
+function configView(c, label, help) {
+  const out = { config: label, kinds: c.config.kinds.join(', ') };
+  out.fields = c.config.fields.length
+    ? c.config.fields.map((f) => ({ id: f.id, label: f.label, required: f.required, options: (f.options || []).join('|') }))
+    : 'none';
+  out.presets = c.config.presets.length ? c.config.presets : 'none';
+  out.labels = [...c.config.labels, ...Object.entries(c.config.labelsByKind).map(([k, v]) => `${k}: ${v.join(' ')}`)].join(', ') || 'none';
+  out.assignees = c.config.assignees.join(', ') || 'none';
+  if (c.warnings.length) out.warnings = c.warnings;
+  out.help = help;
+  return out;
+}
+
 function issueNumber(arg, command) {
   const n = Number(arg);
   if (!Number.isInteger(n) || n < 1) throw usageError(`<id> must be an issue number, not "${arg}"`, `usage: ${COMMANDS[command].usage}`);
@@ -397,6 +410,14 @@ export async function run(argv, ctx = {}) {
       return 0;
     }
 
+    if (command === 'config' && flags.file) {
+      let text;
+      try { text = readFileSync(flags.file, 'utf8'); } catch (e) { throw runError(`cannot read ${flags.file}: ${e.code || e.message}`, 'give the path of .github/papercuts.json'); }
+      const c = checkConfigText(text);
+      print(configView({ found: true, ...c }, `${tilde(flags.file, env)} (local file)`, ['Push the file; the relay reads it from the default branch within 5 minutes']));
+      return flags.check && c.warnings.length ? 1 : 0;
+    }
+
     if (command === 'init') {
       print(initRepo(cwd, repoFromGit(cwd), env));
       return 0;
@@ -450,21 +471,8 @@ export async function run(argv, ctx = {}) {
 
     if (command === 'config') {
       const c = await loadRepoConfig(client, repo);
-      const out = {};
-      if (!c.found) out.config = `no ${CONFIG_PATH} in ${repo}, defaults apply`;
-      else out.config = `${CONFIG_PATH} of ${repo}`;
-      out.kinds = c.config.kinds.join(', ');
-      out.fields = c.config.fields.length
-        ? c.config.fields.map((f) => ({ id: f.id, label: f.label, required: f.required, options: (f.options || []).join('|') }))
-        : 'none';
-      out.presets = c.config.presets.length ? c.config.presets : 'none';
-      out.labels = [...c.config.labels, ...Object.entries(c.config.labelsByKind).map(([k, v]) => `${k}: ${v.join(' ')}`)].join(', ') || 'none';
-      out.assignees = c.config.assignees.join(', ') || 'none';
-      if (c.warnings.length) out.warnings = c.warnings;
-      out.help = c.found
-        ? [`Edit ${CONFIG_PATH} on the default branch; the relay reads it within 5 minutes`]
-        : ['Run `papercuts init` to create a starter config'];
-      print(out);
+      print(configView(c, c.found ? `${CONFIG_PATH} of ${repo}` : `no ${CONFIG_PATH} in ${repo}, defaults apply`,
+        c.found ? [`Edit ${CONFIG_PATH} on the default branch; the relay reads it within 5 minutes`] : ['Run `papercuts init` to create a starter config']));
       return flags.check && c.warnings.length ? 1 : 0;
     }
 

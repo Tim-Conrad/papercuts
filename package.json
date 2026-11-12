@@ -1,6 +1,6 @@
 {
   "name": "papercuts",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "One place where you and your agents report friction. Each papercut is a GitHub issue.",
   "type": "module",
   "license": "MIT",
@@ -17,6 +17,8 @@
     "bin",
     "src",
     "widget",
+    "replay",
+    "schema",
     "skills",
     "AGENTS.md"
   ],

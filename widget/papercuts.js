@@ -177,7 +177,8 @@
 
   function autoContext(el) {
     let site;
-    try { site = typeof window.papercutsContext === 'function' ? window.papercutsContext() : undefined; } catch (e) { site = { error: String(e) }; }
+    // The page can add its own fields. It gets the first marked element, or null for the whole view.
+    try { site = typeof window.papercutsContext === 'function' ? window.papercutsContext(el || null) : undefined; } catch (e) { site = { error: String(e) }; }
     const sel = String(getSelection()).trim().slice(0, 300);
     return {
       url: location.href,
@@ -1482,6 +1483,15 @@
           if (draft.kind && kindsList().includes(draft.kind)) setKind(draft.kind);
           if (typeof draft.text === 'string') { els.text.value = draft.text.slice(0, 300); textChanged(); }
           if (draft.fields && typeof draft.fields === 'object') draftFields = { ...draft.fields };
+          // marks: elements or CSS selectors that the feedback is about. Unknown selectors are left out.
+          if (Array.isArray(draft.marks)) {
+            marks = [];
+            for (const m of draft.marks.slice(0, 10)) {
+              let el = null;
+              try { el = typeof m === 'string' ? document.querySelector(m) : m; } catch (_) { el = null; }
+              if (el && el.nodeType === 1) marks.push({ type: 'element', el, note: '', chain: [] });
+            }
+          }
         }
         open();
       },

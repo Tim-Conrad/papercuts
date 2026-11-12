@@ -12,7 +12,7 @@ Papercuts is for local sites: dev and review copies on your own machine or home 
 
 ## The parts
 
-- **Widget.** A tab on the edge of a page. You pick the part of the page that you mean, write one sentence, and send. You can mark a picture or a screen picture with a pen and numbered pins. The widget adds the context: the URL, the viewport, the element, the selected text, and the console errors. The panel also lists the open papercuts of the repo with their replies, and the ones fixed in the last 14 days with the fix note.
+- **Widget.** A tab on the edge of a page. People only give feedback: one input, by voice or by text, then Send. Agents triage it, so people choose no kind and fill no fields. Everything else comes along in the background: the element that you touched last, the URL, the place, the viewport, the selected text and the console errors. "Mark" adds more: numbered elements, boxes around regions, and drawings on a picture or a screen picture. The panel also lists the open papercuts of the repo with their replies, and the ones fixed in the last 14 days with the fix note.
 - **JS API.** An agent that drives a browser calls `papercuts.report()` on the same page. It does not need to click the tab.
 - **CLI.** An agent in a terminal runs `papercuts add tool "..."`. The output follows the [AXI](https://axi.md) rules for agent tools.
 - **Relay.** A small server that holds the GitHub credential, serves the widget, and creates the issues. The browser never sees a token.
@@ -28,7 +28,7 @@ This checklist is for the agent or person who adds papercuts to an app. Do the s
 3. Add a test: without `PAPERCUTS_URL` the page has no `papercuts`, with it the page has exactly one tag.
 4. Set `PAPERCUTS_URL` only for the copies with a relay, for example the lab and dev copies.
 5. Edit `.github/papercuts.json`: the kinds, the fields, the quick phrases and the labels of this app (see [The ticket config](#the-ticket-config)).
-6. Push, then run `papercuts config --check`. It shows the config that the relay uses and exits 1 on a warning.
+6. Run `papercuts config --file .github/papercuts.json --check` before the push, and `papercuts config --check` after it. Both exit 1 on a warning.
 
 ## Quick start: a site
 
@@ -60,12 +60,22 @@ Optional attributes on the script tag:
 
 Hooks for the page:
 
-- `window.papercutsContext = () => ({ openCard: "c12" })` adds your own fields to each report.
+- `window.papercutsContext = (el) => ({ openCard: "c12" })` adds your own fields to each report. `el` is the first marked element, or `null`.
 - `window.papercutsHidden = () => true` hides the tab, for example in a print view or a kiosk mode. The widget asks once per second.
 - `window.papercutsReplay = () => [{ click: '.card[data-id="k12"]' }]` records up to five clicks that bring the page back to the reported state, for example a dialog without a URL. `papercuts replay` runs them.
 - `window.papercutsStrings = { fr: { send: "Envoyer", close: "Fermer" } }` adds or changes the words of a language. A missing word falls back to English. Set it before the page finishes loading. The keys are in the table `T` at the top of `widget/papercuts.js`.
 
-In a modal `<dialog>` or in fullscreen, the widget moves into the dialog or the fullscreen element, so that it stays usable. After "Parent", "Smaller" goes back down to the element that you picked.
+In a modal `<dialog>` or in fullscreen, the widget moves into the dialog or the fullscreen element, so that it stays usable.
+
+### Mark parts of the page
+
+The element that you touched last, in the 15 seconds before you open the panel, is attached by itself. "Mark" opens the live page with a toolbar at the bottom:
+
+- **Tap** marks an element. A second tap removes the mark. Larger and Smaller move the newest mark to its parent and back.
+- **Box** marks a region: drag a box around it.
+- **Draw** opens a picture of the page in the drawing sheet: pen and numbered pins.
+
+Each mark gets a number on the page and a row in the panel, with an optional note. The issue lists the marks, and `papercuts replay` frames each one with its number.
 
 ### Load papercuts only where a relay exists
 
@@ -94,7 +104,7 @@ For nginx, use two config files and let the entrypoint choose one, so that no ta
 - **A link.** A URL with `#papercut` (or `?papercut=open`) opens the panel when the page loads. Use it for a bookmark, a QR code or a home-screen icon. The widget removes it from the URL.
 - **Two fingers.** On a touch screen, hold two fingers on the page for 0.6 seconds.
 - **Quick phrases.** The `presets` of the ticket config show as chips. One tap fills the kind and the sentence.
-- **Your own button.** `papercuts.open({ kind: "idea", text: "..." })` opens the panel with a draft, for a menu entry of the app.
+- **Your own button.** `papercuts.open({ text: "...", kind: "idea", marks: ["#cart", element], fields: { ... } })` opens the panel with a draft, for a menu entry of the app. Every key is optional. `marks` takes elements or CSS selectors.
 
 ### Voice input
 
@@ -127,9 +137,9 @@ With `?papercuts=download` in the URL, or `data-mode="download"`, the widget sho
 
 | Key | Use |
 | --- | --- |
-| `kinds` | The kinds that the widget offers, in this order. Use the built-in kinds only, so that labels stay the same in all repos. |
-| `fields` | At most 8 extra fields. A field with `options` is a choice, else one line of text. A required field is required for people and agents. |
-| `presets` | At most 12 quick phrases for the widget. |
+| `kinds` | The kinds that agents use in this repo. Use the built-in kinds only, so that labels stay the same in all repos. |
+| `fields` | At most 8 extra fields for agents. A field with `options` is a choice, else one line of text. A required field is required for agent reports. People never see the fields. `open({ fields })` can fill them for a person. |
+| `presets` | At most 12 quick phrases for the widget. One tap fills the sentence and, silently, the kind. |
 | `labels`, `labelsByKind`, `assignees` | Added to each new issue. |
 | `context` | The `localStorage` keys to include, the same as `data-storage` and `data-storage-skip`. |
 | `lang` | The language of the widget when the page sets no `data-lang`. |
@@ -165,7 +175,7 @@ if (window.papercuts) {
 }
 ```
 
-`report()` never throws. It returns `{ ok, issue, url, deduped }`, or `{ ok: false, error, help, queued }`. A report that the relay cannot take now waits in the browser (IndexedDB) and goes out later. The browser removes known secret patterns before it stores a report.
+`report()` takes `kind`, `text`, `where`, `fields`, `marks` and `from` (`"agent"` by default, `"human"` for a report that a person wrote in the app's own form). `report()` never throws. It returns `{ ok, issue, url, deduped }`, or `{ ok: false, error, help, queued }`. A report that the relay cannot take now waits in the browser (IndexedDB) and goes out later. The browser removes known secret patterns before it stores a report.
 
 The repo includes a skill for agents (`skills/papercuts/SKILL.md`). The file `AGENTS.md` holds a block to copy into the `AGENTS.md` of a project.
 
@@ -239,7 +249,7 @@ Routes:
 
 - Title: `papercut: ` and the first 70 characters of the sentence.
 - Labels: `papercut`, `from:human` or `from:agent`, and `kind:<kind>`. The central target adds `project:<owner/name>`.
-- Kinds: `bug`, `ux`, `copy`, `tool`, `rule`, `path`, `idea`, `other`. The widget offers `bug`, `ux`, `copy`, `idea` and `other`.
+- Kinds: `bug`, `ux`, `copy`, `tool`, `rule`, `path`, `idea`, `other`. People choose no kind: a report from the widget is `other`, unless a preset or `open()` sets one. Agents choose the kind.
 - Body: the sentence, the picture and the numbered pins if there are any, a YAML block with the context, and HTML comments: `papercut-id` (one per report), `papercut-place` (where the reporter was), and for agents `papercut-fp` (the fingerprint).
 
 Repeats:
