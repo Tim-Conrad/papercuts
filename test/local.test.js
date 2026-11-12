@@ -288,3 +288,20 @@ test('review: the local relay accepts localhost without a port', () => {
   const { origins } = loadConfig({}, {}, { store: 'local' });
   for (const o of ['http://localhost', 'http://localhost:5173', 'http://127.0.0.1:8000']) assert.ok(origins.some((g) => new RegExp(`^${g.replace(/[.]/g, '\\.').replace('*', '[^./:]+')}$`).test(o)), o);
 });
+
+test('review: the relay list does not send the host path of the database', async () => {
+  const db = join(cwd, '.papercuts', 'papercuts.db');
+  const relay = createRelay(loadConfig({}, {}, { store: 'local' }), { client: localClient({ dbPath: db, root: cwd }) });
+  await new Promise((r) => relay.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${relay.address().port}`;
+  try {
+    const origin = 'http://localhost:5173';
+    await fetch(base + '/report', { method: 'POST', headers: { 'content-type': 'text/plain', origin },
+      body: JSON.stringify({ from: 'human', report: { kind: 'bug', text: 'x', repo: 'local/s' } }) });
+    const list = await (await fetch(base + '/list?repo=local/s', { headers: { origin } })).text();
+    assert.ok(!list.includes(cwd), list);
+    assert.ok(!list.includes('file:'), list);
+  } finally {
+    await new Promise((r) => relay.close(r));
+  }
+});

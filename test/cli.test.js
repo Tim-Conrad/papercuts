@@ -160,7 +160,7 @@ test('subcommand help', async () => {
 
 test('version fast path', () => {
   for (const flag of ['-v', '-V', '--version']) {
-    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.4.0\n');
+    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.4.1\n');
   }
 });
 
@@ -522,4 +522,28 @@ test('comment adds a comment to the issue, with secrets redacted', async () => {
   const body = gh.state.issues['Tim-Conrad/shop'][0].commentList.at(-1);
   assert.match(body, /^Option A or B/);
   assert.ok(!body.includes('ghp_abcdefghij'), body);
+});
+
+test('init finds FastAPI in app/ and prints the Jinja template code for server-rendered pages (papercut #19)', async () => {
+  mkdirSync(join(cwd, 'app', 'templates'), { recursive: true });
+  writeFileSync(join(cwd, 'app', 'requirements.txt'), 'fastapi\njinja2\n');
+  writeFileSync(join(cwd, 'app', 'templates', 'base.html'), '<html><head></head></html>');
+  const r = await cli('init');
+  assert.match(r.out, /^stack: fastapi-jinja$/m);
+  assert.match(r.out, /\{% if papercuts_url\(\) %\}<script src="\{\{ papercuts_url\(\) \}\}\/papercuts\.js" data-repo="Tim-Conrad\/shop"><\/script>\{% endif %\}/);
+  assert.match(r.out, /base\.html/);
+});
+
+test('init finds a FastAPI app in any first-level folder before an nginx.conf at the top (papercut #20)', async () => {
+  writeFileSync(join(cwd, 'nginx.conf'), 'server {}');
+  mkdirSync(join(cwd, 'admin'));
+  writeFileSync(join(cwd, 'admin', 'requirements.txt'), 'fastapi\nuvicorn\n');
+  const r = await cli('init');
+  assert.match(r.out, /^stack: fastapi$/m);
+});
+
+test('the starter config sets no kinds, so that agent kinds like tool stay allowed', async () => {
+  await cli('init');
+  const cfg = JSON.parse(readFileSync(join(cwd, '.github', 'papercuts.json'), 'utf8'));
+  assert.equal(cfg.kinds, undefined);
 });

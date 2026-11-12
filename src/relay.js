@@ -125,7 +125,8 @@ export function createRelay(config, { client }) {
       const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from, norm.report.kind);
       if (!fields.ok) return send(400, { ...fields, retry: false });
       norm.report.fields = fields.fields;
-      const result = await fileOnce(norm.report, repoCfg);
+      const filed = await fileOnce(norm.report, repoCfg);
+      const result = filed.url && !/^https?:\/\//.test(filed.url) ? { ...filed, url: '' } : filed;
       if (result.ok) listCache.delete(norm.report.repo);
       return send(result.ok ? 200 : result.retry ? 502 : 422, result);
     } catch (e) {

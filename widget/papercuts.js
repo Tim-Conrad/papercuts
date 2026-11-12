@@ -503,7 +503,7 @@
     .items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
     .items li { padding: 12px 12px 10px; border: 1px solid var(--pc-line); border-radius: 14px; display: grid; gap: 7px; }
     .items .title { font-weight: 600; font-size: 14px; }
-    .items .title a { color: var(--pc-muted); font-weight: 550; text-decoration: none; margin-right: 6px; font-variant-numeric: tabular-nums; }
+    .items .title a, .items .title .ref { color: var(--pc-muted); font-weight: 550; text-decoration: none; margin-right: 6px; font-variant-numeric: tabular-nums; }
     .items .title a:hover { color: var(--pc-accent); }
     .items .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--pc-muted); }
     .chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--pc-surface); font-size: 12px; font-weight: 600; color: var(--pc-muted); }
@@ -1151,7 +1151,7 @@
         const closed = i.state === 'closed';
         return h('li', { 'data-issue': String(i.issue), ...(closed ? { class: 'closed' } : {}) },
           ...(closed ? [h('div', { class: 'done' }, icon('check'), `${t.fixed}${i.fix ? `: ${i.fix}` : ''}`)] : []),
-          h('div', { class: 'title' }, h('a', { href: i.url, target: '_blank', rel: 'noopener' }, `#${i.issue}`), i.title),
+          h('div', { class: 'title' }, i.url ? h('a', { href: i.url, target: '_blank', rel: 'noopener' }, `#${i.issue}`) : h('span', { class: 'ref' }, `#${i.issue}`), i.title),
           h('div', { class: 'meta' }, h('span', { class: 'chip' }, t.kinds[i.kind] || i.kind),
             `${t.age(days(i.created))} · ${t.replyCount(i.replyCount)}${i.plus ? ` · +${i.plus}` : ''}`),
           ...(last && !(closed && /^Fixed: /.test(last.text)) ? [h('div', { class: 'reply' }, last.text)] : []),
@@ -1242,7 +1242,7 @@
       els.send.disabled = false;
       els.send.classList.remove('busy');
       if (r.ok) {
-        setStatus('ok', t.thanks, h('a', { href: r.url, target: '_blank', rel: 'noopener' }, `#${r.issue}`));
+        setStatus('ok', t.thanks, r.url ? h('a', { href: r.url, target: '_blank', rel: 'noopener' }, `#${r.issue}`) : h('b', {}, `#${r.issue}`));
         clearForm();
         showDone();
       } else if (r.queued) {
