@@ -54,7 +54,7 @@ def v2_base_checks(browser, ctl, page_url, width):
     host = page.locator("papercuts-widget")
     host.locator(".tab").click()
     check(f"{width}: German labels", host.locator("button.send").inner_text() == "Senden", host.locator("button.send").inner_text())
-    check(f"{width}: idea kind offered", host.locator("select option[value=idea]").count() == 1)
+    check(f"{width}: people get one input, no kind chips", host.locator(".kinds").count() == 0 and host.locator("textarea").count() == 1)
 
     page.goto(page_url)
     ready(page)
@@ -142,6 +142,7 @@ def sheet_checks(browser, ctl, page_url, width):
     check(f"{width}: no mark button before a picture is picked", host.locator("button.mark-pic").is_hidden())
     host.locator("button.pick").click()
     page.locator("#pic").click()
+    host.locator(".marktools button.done").click()
     check(f"{width}: mark button after picking a picture", host.locator("button.mark-pic").is_visible())
     host.locator("button.mark-pic").click()
     canvas = host.locator(".sheet canvas")
@@ -172,6 +173,7 @@ def sheet_checks(browser, ctl, page_url, width):
     check(f"{width}: issue has the picture and the pins", "![papercut](" in body and "1. too dark" in body and "2. cut off" in body, body[:300])
     check(f"{width}: uploaded file is a PNG", st["uploads"] and st["uploads"][-1] == "89504e470d0a1a0a", str(st["uploads"][-1:]))
     check(f"{width}: panel forgets the picture after sending", host.locator(".panel img.preview").is_hidden())
+    host.locator("button.another").click()
     if width > 800:
         check(f"{width}: mark screen offered on desktop", host.locator("button.mark-screen").is_visible())
     check(f"{width}: no page errors in sheet checks", not errors, "; ".join(errors))
@@ -261,6 +263,7 @@ def list_checks(browser, ctl, page_url, width):
     host.locator(".tab").click()
     host.locator("button.pick").click()
     page.locator("#noise").click()
+    host.locator(".marktools button.done").click()
     host.locator("button.mark-pic").click()
     host.locator(".sheet button.done").click()
     host.locator("textarea").fill(f"noisy picture {width}")
@@ -295,11 +298,14 @@ def parity_checks(browser, ctl, page_url, width):
     host.locator(".tab").click()
     host.locator("button.pick").click()
     page.locator("#buy").click()
-    check(f"{width}: Smaller is off before Parent", host.locator("button.child").is_disabled())
-    host.locator("button.parent").click()
-    check(f"{width}: Parent goes up", "card" in host.locator(".target").inner_text())
-    host.locator("button.child").click()
-    check(f"{width}: Smaller goes back down", "buy" in host.locator(".target").inner_text())
+    check(f"{width}: Smaller is off before Larger", host.locator(".marktools button.child").is_disabled())
+    host.locator(".marktools button.parent").click()
+    host.locator(".marktools button.done").click()
+    check(f"{width}: Larger goes up", "card" in host.locator(".marklist li").first.inner_text())
+    host.locator("button.pick").click()
+    host.locator(".marktools button.child").click()
+    host.locator(".marktools button.done").click()
+    check(f"{width}: Smaller goes back down", "buy" in host.locator(".marklist li").first.inner_text())
 
     page.evaluate("localStorage.setItem('theme', 'dark'); localStorage.setItem('deck', 'k12'); localStorage.setItem('room-code', 'SECRET-ROOM')")
     page.evaluate("papercuts.report({kind: 'ux', text: 'storage all ' + innerWidth, from: 'human'})")
@@ -332,7 +338,7 @@ def v022_checks(browser, ctl, page_url, width):
     host = page.locator("papercuts-widget")
     host.locator(".tab").click()
     check(f"{width}: a site can add a language", host.locator("button.send").inner_text() == "Envoyer")
-    check(f"{width}: missing strings fall back to English", host.locator("button.pick").inner_text() == "Pick")
+    check(f"{width}: missing strings fall back to English", host.locator("button.pick").inner_text() == "Mark")
     r = page.evaluate("papercuts.report({kind: 'ux', text: 'steps check ' + innerWidth, from: 'human'})")
     body = issues(ctl)[-1]["body"]
     marker = re.search(r"<!-- papercut-place: (\S+) -->", body)
@@ -347,6 +353,243 @@ def v022_checks(browser, ctl, page_url, width):
     txt = item.inner_text() if item.count() else ""
     check(f"{width}: list shows a recently closed papercut with its fix", "done in abc1234" in txt and item.get_attribute("class") == "closed", txt)
     check(f"{width}: no page errors in v0.2.2 checks", not errors, "; ".join(errors))
+    ctx.close()
+
+
+V03_CONFIG = json.dumps({
+    "kinds": ["ux", "bug", "idea"],
+    "fields": [{"id": "expected", "label": "What did you expect?", "required": True}, {"id": "device", "label": "Device", "options": ["phone", "desktop"]}],
+    "presets": [{"kind": "ux", "text": "Too small to tap"}, {"kind": "bug", "text": "This does not load"}],
+    "labels": ["area:web"],
+})
+
+FAKE_SPEECH = """
+class FakeSpeech { constructor() { this.lang = ''; }
+  start() { window.__speechLang = this.lang; setTimeout(() => {
+    const r = (t, f) => { const a = [{ transcript: t }]; a.isFinal = f; return a; };
+    this.onresult && this.onresult({ resultIndex: 0, results: [r('the menu', false)] });
+    this.onresult && this.onresult({ resultIndex: 0, results: [r('the menu covers the button', true)] });
+    this.onend && this.onend(); }, 60); }
+  stop() { this.onend && this.onend(); } }
+window.SpeechRecognition = FakeSpeech; window.webkitSpeechRecognition = FakeSpeech;
+"""
+
+
+def v03_checks(browser, ctl, page_url, width):
+    """Ticket config in the widget, open(draft), shortcuts, deep link, two-finger press, voice first on phones."""
+    control(ctl, "/mode?m=ok")
+    control(ctl, "/config?json=" + urllib.parse.quote(V03_CONFIG))
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url + "?shortcut=ctrl%2Bk")
+    ready(page)
+    host = page.locator("papercuts-widget")
+    page.keyboard.press("Control+k")
+    check(f"{width}: custom shortcut opens the panel", host.locator(".panel").is_visible())
+    check(f"{width}: no voice-first button with a mouse", host.locator("button.speak").is_hidden())
+    check(f"{width}: no kind chips even with a config", host.locator(".kinds").count() == 0)
+    check(f"{width}: presets show as chips", host.locator(".presets button").count() == 2)
+    host.locator(".presets button", has_text="Too small to tap").click()
+    check(f"{width}: a preset fills the text", host.locator("textarea").input_value() == "Too small to tap")
+    check(f"{width}: fields are not shown to people", host.locator(".fields").count() == 0)
+    before = len(issues(ctl))
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    issue = issues(ctl)[-1]
+    names = [l["name"] for l in issue["labels"]]
+    check(f"{width}: a person is not blocked by a required field", len(issues(ctl)) == before + 1)
+    check(f"{width}: the preset kind and the config labels go into the issue", "kind:ux" in names and "area:web" in names, str(names))
+    host.locator("button.close").click()
+    page.evaluate("papercuts.open({ kind: 'idea', text: 'A dark mode for the cart', fields: { expected: 'Dark colors', device: 'desktop' } })")
+    check(f"{width}: open(draft) fills the panel", host.locator(".panel").is_visible() and host.locator("textarea").input_value() == "A dark mode for the cart")
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    issue = issues(ctl)[-1]
+    check(f"{width}: draft kind and fields go into the issue", "**What did you expect?** Dark colors" in issue["body"] and any(l["name"] == "kind:idea" for l in issue["labels"]), issue["body"][:300])
+    host.locator("button.close").click()
+
+    page.goto(page_url + "#papercut")
+    ready(page)
+    page.wait_for_timeout(300)
+    check(f"{width}: #papercut opens the panel", host.locator(".panel").is_visible())
+    check(f"{width}: #papercut is removed from the URL", page.evaluate("location.hash") == "")
+    check(f"{width}: no page errors in v0.3 checks", not errors, "; ".join(errors))
+    ctx.close()
+
+    phone = browser.new_context(viewport={"width": width, "height": 860}, has_touch=True, is_mobile=width < 800)
+    page = phone.new_page()
+    page.add_init_script(FAKE_SPEECH)
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    page.evaluate("""(() => {
+      const t = (id, x, y) => new Touch({ identifier: id, target: document.body, clientX: x, clientY: y });
+      const a = [t(1, 100, 300), t(2, 160, 300)];
+      document.body.dispatchEvent(new TouchEvent('touchstart', { touches: a, targetTouches: a, changedTouches: a, bubbles: true }));
+    })()""")
+    page.wait_for_timeout(800)
+    check(f"{width}: a long press with two fingers opens the panel", host.locator(".panel").is_visible())
+    page.evaluate("document.body.dispatchEvent(new TouchEvent('touchend', { touches: [], bubbles: true }))")
+    check(f"{width}: voice first on a touch screen", host.locator("button.speak").is_visible())
+    host.locator("button.speak").click()
+    page.wait_for_timeout(400)
+    check(f"{width}: speech fills the text", host.locator("textarea").input_value() == "the menu covers the button", host.locator("textarea").input_value())
+    check(f"{width}: speech uses the page language", page.evaluate("window.__speechLang") == "en", str(page.evaluate("window.__speechLang")))
+    phone.close()
+    control(ctl, "/config?json=")
+
+
+def active_in_widget(page):
+    return page.evaluate("(() => { const r = document.querySelector('papercuts-widget').shadowRoot; const a = r.activeElement; return a ? (a.className || a.localName) : null; })()")
+
+
+def review_checks(browser, ctl, page_url, width):
+    """Findings of the UX review: focus, Esc, success view, kinds, login state, voice errors, shortcuts."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    warns = []
+    page.on("console", lambda m: warns.append(m.text) if m.type == "warning" else None)
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    tab = host.locator(".tab")
+    check(f"{width}: tab says it is collapsed", tab.get_attribute("aria-expanded") == "false")
+    check(f"{width}: tab names its shortcut", tab.get_attribute("aria-keyshortcuts") == "Alt+Shift+P")
+    tab.click()
+    check(f"{width}: tab says it is expanded", tab.get_attribute("aria-expanded") == "true")
+    check(f"{width}: panel is a modal dialog", host.locator(".panel").get_attribute("aria-modal") == "true")
+    check(f"{width}: hidden tab is out of the tab order", page.evaluate("document.querySelector('papercuts-widget').shadowRoot.querySelector('.tab').inert") is True)
+    check(f"{width}: no element attached without a tap", host.locator(".marks").is_hidden())
+    check(f"{width}: shortcuts are shown in the panel", host.locator(".shortcuts").is_visible() and "Alt+Shift+P" in host.locator(".shortcuts").inner_text())
+    check(f"{width}: copy-link button exists", host.locator(".shortcuts button.copylink").count() == 1)
+    host.locator("button.send").focus()
+    for _ in range(30):
+        page.keyboard.press("Tab")
+        if active_in_widget(page) is None:
+            break
+    check(f"{width}: Tab stays inside the panel", active_in_widget(page) is not None, str(active_in_widget(page)))
+    page.mouse.click(5, 5)
+    page.keyboard.press("Escape")
+    check(f"{width}: Esc closes the panel after a click on the page", host.locator(".panel").is_hidden())
+
+    tab.click()
+    host.locator("textarea").fill(f"review success view {width}")
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    body = issues(ctl)[-1]
+    check(f"{width}: no kind chosen files as other", any(l["name"] == "kind:other" for l in body["labels"]), str([l["name"] for l in body["labels"]]))
+    check(f"{width}: success view hides the form and the send button", host.locator(".form-area").is_hidden() and host.locator("button.send").is_hidden() and host.locator("button.another").is_visible())
+    host.locator("button.another").click()
+    check(f"{width}: report another shows the form again", host.locator("textarea").is_visible() and host.locator("button.send").is_visible() and host.locator(".status").inner_text() == "")
+    host.locator("button.close").click()
+    page.locator("#buy").click()
+    page.keyboard.press("Alt+Shift+P")
+    check(f"{width}: the last tapped element attaches itself", host.locator(".marks").is_visible() and "buy" in host.locator(".marklist").inner_text().lower(), host.locator(".marklist").inner_text())
+    host.locator("button.close").click()
+    ctx.close()
+
+    control(ctl, "/mode?m=loggedout")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    page.goto(page_url)
+    page.wait_for_function(f"{SHADOW}?.querySelector('.tab')", timeout=5000)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    check(f"{width}: logged out shows a log-in hint", "log in" in host.locator(".status").inner_text().lower(), host.locator(".status").inner_text())
+    ctx.close()
+
+    control(ctl, "/mode?m=nostatus")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    warns = []
+    page.on("console", lambda m: warns.append(m.text) if m.type == "warning" else None)
+    page.goto(page_url)
+    page.wait_for_timeout(1200)
+    check(f"{width}: relay down logs a warning", any("papercuts" in w and "not reachable" in w for w in warns), str(warns))
+    ctx.close()
+    control(ctl, "/mode?m=ok")
+
+    phone = browser.new_context(viewport={"width": width, "height": 860}, has_touch=True, is_mobile=width < 800)
+    page = phone.new_page()
+    page.add_init_script("class F{start(){setTimeout(()=>{this.onerror&&this.onerror({error:'not-allowed'});this.onend&&this.onend();},30)} stop(){}}; window.SpeechRecognition=F; window.webkitSpeechRecognition=F;")
+    page.goto(page_url + "?lang=de")
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    check(f"{width}: touch open focuses no text field", active_in_widget(page) != "textarea" if active_in_widget(page) else True, str(active_in_widget(page)))
+    host.locator("button.speak").click()
+    page.wait_for_timeout(200)
+    st = host.locator(".status").inner_text()
+    check(f"{width}: a blocked microphone gives a plain message", "Mikrofon" in st and "not-allowed" not in st, st)
+    sizes = page.evaluate("""(() => { const r = document.querySelector('papercuts-widget').shadowRoot;
+        return [...r.querySelectorAll('.kinds button, button.pick, button.close, button.send')].map(b => Math.round(b.getBoundingClientRect().height)); })()""")
+    check(f"{width}: touch targets are at least 44 px", min(sizes) >= 44, str(sizes))
+    phone.close()
+
+
+def frames(page):
+    return page.evaluate("document.querySelector('papercuts-widget').shadowRoot.querySelectorAll('.marklayer .mframe').length")
+
+
+def mark_checks(browser, ctl, page_url, width):
+    """Mark mode: several elements, regions, notes, renumbering, the issue and replay data."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    host.locator("button.pick").click()
+    check(f"{width}: mark mode shows its toolbar and hides the panel", host.locator(".marktools").is_visible() and host.locator(".panel").is_hidden())
+    page.locator("#buy").click()
+    page.locator("#title").click()
+    check(f"{width}: two taps make two numbered marks", frames(page) == 2 and host.locator(".marktools .done .bubble").inner_text() == "2")
+    page.locator("#buy").click()
+    check(f"{width}: a second tap removes a mark", frames(page) == 1)
+    page.locator("#buy").click()
+    host.locator(".marktools button.tool-box").click()
+    page.mouse.move(300, 520); page.mouse.down(); page.mouse.move(420, 620, steps=5); page.mouse.up()
+    check(f"{width}: a dragged box is a third mark", frames(page) == 3, str(frames(page)))
+    host.locator(".marktools button.tool-draw").click()
+    page.locator("#long").click()
+    check(f"{width}: draw asks for a picture", "picture" in host.locator(".marktools .tip").inner_text().lower())
+    host.locator(".marktools button.done").click()
+    rows = host.locator(".marklist li")
+    check(f"{width}: the panel lists three marks", rows.count() == 3, str(rows.count()))
+    check(f"{width}: frames stay on the page while the panel is open", frames(page) == 3)
+    check(f"{width}: note fields open on demand", rows.nth(1).locator("input").is_hidden())
+    rows.nth(1).locator("button.addnote").click()
+    rows.nth(1).locator("input").fill("this heading")
+    rows.nth(0).locator("button.remove-mark").click()
+    check(f"{width}: removing renumbers the marks", rows.count() == 2 and rows.nth(0).locator(".num").inner_text() == "1" and rows.nth(0).locator("input").input_value() == "this heading")
+    host.locator("textarea").fill(f"marks check {width}")
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    body = issues(ctl)[-1]["body"]
+    check(f"{width}: the issue lists the marks with notes", "**Marked**" in body and "1. `button#buy` “Buy” — this heading" in body and "2. a region of 120×100 px" in body, json.dumps(body[:500]))
+    marker = re.search(r"<!-- papercut-place: (\S+) -->", body)
+    place = json.loads(urllib.parse.unquote(marker.group(1))) if marker else {}
+    check(f"{width}: replay gets every mark", len(place.get("marks", [])) == 2 and place["marks"][1].get("box", {}).get("w") == 120, str(place.get("marks")))
+    check(f"{width}: marks are cleared after sending", frames(page) == 0 and host.locator(".marklist li").count() == 0, f"{frames(page)} {host.locator('.marklist li').count()}")
+    host.locator("button.another").click()
+    host.locator("button.pick").click()
+    page.keyboard.press("Escape")
+    check(f"{width}: Esc leaves mark mode for the panel", host.locator(".panel").is_visible() and host.locator(".marktools").is_hidden())
+    host.locator("button.close").click()
+    page.evaluate("window.papercutsContext = (el) => ({ about: el ? el.id : 'none' })")
+    page.evaluate("papercuts.open({ text: 'open with marks', marks: ['#buy', document.getElementById('title'), '#missing'] })")
+    check(f"{width}: open() attaches marks by selector or element", host.locator(".marklist li").count() == 2, str(host.locator(".marklist li").count()))
+    host.locator("button.send").click()
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    body = issues(ctl)[-1]["body"]
+    check(f"{width}: papercutsContext gets the first marked element", "about: buy" in body, body[:600])
+    check(f"{width}: no page errors in mark checks", not errors, "; ".join(errors))
     ctx.close()
 
 
@@ -373,9 +616,9 @@ def main():
                 host.locator(".tab").click()
                 host.locator("button.pick").click()
                 page.locator("#buy").click()
-                target = host.locator(".target").inner_text()
+                host.locator(".marktools button.done").click()
+                target = host.locator(".marklist li").first.inner_text()
                 check(f"{width}: pick selects element", "buy" in target.lower(), target)
-                host.locator("select").select_option("ux")
                 host.locator("textarea").fill(f"Buy button is too small at {width}")
                 host.locator("button.send").click()
                 page.wait_for_function("document.querySelector('papercuts-widget').shadowRoot.querySelector('.status').textContent.includes('#')")
@@ -431,6 +674,9 @@ def main():
                 list_checks(browser, ctl, page_url, width)
                 parity_checks(browser, ctl, page_url, width)
                 v022_checks(browser, ctl, page_url, width)
+                v03_checks(browser, ctl, page_url, width)
+                review_checks(browser, ctl, page_url, width)
+                mark_checks(browser, ctl, page_url, width)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})

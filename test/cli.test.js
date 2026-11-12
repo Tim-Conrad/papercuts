@@ -160,7 +160,7 @@ test('subcommand help', async () => {
 
 test('version fast path', () => {
   for (const flag of ['-v', '-V', '--version']) {
-    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.2.2\n');
+    assert.equal(execFileSync('node', ['bin/papercuts.js', flag]).toString(), '0.3.0\n');
   }
 });
 
@@ -189,7 +189,7 @@ test('setup prints scope', async () => {
   const c = await cli('setup', '--target', 'central', '--repo', 'Tim-Conrad/inbox', '--hooks', 'none', '--credential', 'file', '--token-file', '/t');
   assert.equal(c.code, 0, c.out);
   assert.match(c.out, /Issues: read and write/);
-  assert.match(c.out, /only Tim-Conrad\/inbox/);
+  assert.match(c.out, /Tim-Conrad\/inbox, and the app repos/);
   const p = await cli('setup', '--target', 'central', '--hooks', 'none');
   assert.equal(p.code, 2);
   assert.match(p.out, /^error: --repo is required for --target central/m);
@@ -374,4 +374,126 @@ test('replay prints the replay steps', async () => {
   const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n));
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /steps: click \.karte\[data-id="k12"\]/);
+});
+
+const SHOP_CFG = { fields: [{ id: 'expected', label: 'What did you expect?', required: true }], labels: ['area:web'] };
+
+test('add --field fills the fields of the repo config, and the config labels apply', async () => {
+  gh.state.files['Tim-Conrad/shop'] = { '.github/papercuts.json': JSON.stringify(SHOP_CFG) };
+  const r = await cli('add', 'tool', 'the export is slow', '--field', 'expected=It takes one second');
+  assert.equal(r.code, 0, r.out);
+  const issue = gh.state.issues['Tim-Conrad/shop'].at(-1);
+  assert.match(issue.body, /\*\*What did you expect\?\*\* It takes one second/);
+  assert.ok(issue.labels.some((l) => l.name === 'area:web'));
+  const missing = await cli('add', 'tool', 'another one');
+  assert.equal(missing.code, 1);
+  assert.match(missing.out, /^error: field "expected" is required/m);
+  assert.match(missing.out, /^help: valid fields: expected/m);
+  const bad = await cli('add', 'tool', 'x', '--field', 'novalue');
+  assert.equal(bad.code, 2);
+  assert.match(bad.out, /--field needs id=value/);
+});
+
+test('config shows the repo config, --check fails on warnings', async () => {
+  let r = await cli('config');
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^config: no \.github\/papercuts\.json in Tim-Conrad\/shop, defaults apply$/m);
+  gh.state.files['Tim-Conrad/shop'] = { '.github/papercuts.json': JSON.stringify({ ...SHOP_CFG, surprise: 1 }) };
+  r = await cli('config');
+  assert.equal(r.code, 0);
+  assert.match(r.out, /fields\[1\]\{id,label,required,options\}:\n  expected,What did you expect\?,true,/);
+  assert.match(r.out, /warnings\[1\]:\n  unknown key "surprise"/);
+  r = await cli('config', '--check');
+  assert.equal(r.code, 1);
+  gh.state.files['Tim-Conrad/shop'] = { '.github/papercuts.json': JSON.stringify(SHOP_CFG) };
+  assert.equal((await cli('config', '--check')).code, 0);
+});
+
+test('init writes the starter config and the AGENTS block once, and names the stack', async () => {
+  writeFileSync(join(cwd, 'requirements.txt'), 'fastapi==0.120\nuvicorn\n');
+  const r = await cli('init');
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^stack: fastapi$/m);
+  assert.match(r.out, /\.github\/papercuts\.json: created/);
+  assert.match(r.out, /AGENTS\.md: (added|created with) the papercuts block/);
+  assert.match(r.out, /PAPERCUTS_URL/);
+  const cfg = JSON.parse(readFileSync(join(cwd, '.github', 'papercuts.json'), 'utf8'));
+  assert.ok(cfg.$schema.includes('papercuts.schema.json'));
+  assert.ok(Array.isArray(cfg.presets));
+  assert.match(readFileSync(join(cwd, 'AGENTS.md'), 'utf8'), /## Papercuts/);
+  const again = await cli('init');
+  assert.equal(again.code, 0);
+  assert.match(again.out, /\.github\/papercuts\.json: exists, not changed/);
+  assert.match(again.out, /AGENTS\.md: has the papercuts block, not changed/);
+  assert.equal((readFileSync(join(cwd, 'AGENTS.md'), 'utf8').match(/## Papercuts/g) || []).length, 1);
+});
+
+test('init detects nginx, vite and a plain page', async () => {
+  const { mkdtempSync: mk } = await import('node:fs');
+  for (const [file, text, stack] of [['nginx.conf', 'server {}', 'nginx'], ['package.json', '{"devDependencies":{"vite":"6"}}', 'vite'], ['index.html', '<html></html>', 'static']]) {
+    const dir = mk(join(tmpdir(), 'pc-init-'));
+    execFileSync('git', ['init', '-q'], { cwd: dir });
+    execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:Tim-Conrad/shop.git'], { cwd: dir });
+    writeFileSync(join(dir, file), text);
+    let out = '';
+    const code = await run(['init'], { env: { HOME: home }, cwd: dir, client, stdout: { write: (s) => { out += s; } } });
+    assert.equal(code, 0, out);
+    assert.match(out, new RegExp(`^stack: ${stack}$`, 'm'));
+  }
+});
+
+test('replay prints the marks', async () => {
+  const place = { url: 'https://shop.lab.t7d.dev/', hash: '', marks: [{ selector: '#buy' }, { box: { x: 1, y: 2, w: 3, h: 4 } }] };
+  const n = issueWith(`x\n\n<!-- papercut-place: ${encodeURIComponent(JSON.stringify(place))} -->\n`);
+  const r = await cliEnv({ PATH: '/nonexistent' }, 'replay', String(n));
+  assert.match(r.out, /marks: 1 #buy, 2 box 3x4 at 1,2/);
+});
+
+test('the package ships replay and the schema', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const dir of ['bin', 'src', 'widget', 'replay', 'schema', 'skills', 'AGENTS.md']) assert.ok(pkg.files.includes(dir), dir);
+});
+
+test('config --file checks a local file offline', async () => {
+  const f = join(cwd, 'p.json');
+  writeFileSync(f, JSON.stringify({ fields: [{ id: 'expected', label: 'Expected?' }] }));
+  const n = gh.state.requests.length;
+  let r = await cli('config', '--file', f);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /^config: .*p\.json \(local file\)$/m);
+  assert.equal(gh.state.requests.length, n);
+  writeFileSync(f, '{ broken');
+  r = await cli('config', '--file', f, '--check');
+  assert.equal(r.code, 1);
+  assert.match(r.out, /not valid JSON/);
+  r = await cli('config', '--file', join(cwd, 'missing.json'));
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^error: cannot read/m);
+});
+
+test('init prints code for the stack, checks the config, and explains the integration', async () => {
+  const { mkdtempSync: mk, mkdirSync: md } = await import('node:fs');
+  const dir = mk(join(tmpdir(), 'pc-init2-'));
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:Tim-Conrad/shop.git'], { cwd: dir });
+  md(join(dir, 'frontend'));
+  writeFileSync(join(dir, 'frontend', 'package.json'), '{"devDependencies":{"vite":"6"}}');
+  let out = '';
+  const code = await run(['init'], { env: { HOME: home }, cwd: dir, client, stdout: { write: (s) => { out += s; } } });
+  assert.equal(code, 0, out);
+  assert.match(out, /^stack: vite$/m);
+  assert.match(out, /^snippet\[\d+\]:/m);
+  assert.match(out, /^check: \.github\/papercuts\.json has no warnings$/m);
+  assert.match(out, /github\.com\/Tim-Conrad\/papercuts#integrate-papercuts-into-an-app/);
+  const cfg = JSON.parse(readFileSync(join(dir, '.github', 'papercuts.json'), 'utf8'));
+  assert.equal(cfg.fields.length, 1);
+  assert.equal(cfg.fields[0].required, false);
+  const agents = readFileSync(join(dir, 'AGENTS.md'), 'utf8');
+  for (const s of ['.github/papercuts.json', 'papercutsContext', 'PAPERCUTS_URL', 'papercuts config']) assert.ok(agents.includes(s), s);
+});
+
+test('init prints the FastAPI code that avoids the 304 trap', async () => {
+  writeFileSync(join(cwd, 'requirements.txt'), 'fastapi\n');
+  const r = await cli('init');
+  assert.match(r.out, /HTMLResponse/);
 });

@@ -20,10 +20,12 @@ Do not stop your task to report. Report in one command and continue. A repeat ad
 
 ## Commands
 
-- `papercuts add <kind> "<text>" [--where <place>] [--repo <owner/name>]`: Report one papercut as an agent. A repeat of an open papercut adds +1 to it.
+- `papercuts add <kind> "<text>" [--where <place>] [--field <id>=<value>]... [--repo <owner/name>]`: Report one papercut as an agent. A repeat of an open papercut adds +1 to it.
 - `papercuts list [--from agent|human] [--kind <kind>] [--fields <a,b>] [--repo <owner/name>]`: List the open papercuts of the repo.
 - `papercuts view <id> [--full] [--repo <owner/name>]`: Show one papercut with its context.
 - `papercuts done <id> --fix "<what changed>" [--repo <owner/name>]`: Close a papercut with a note about the fix. A closed papercut is a no-op.
+- `papercuts config [--file <path>] [--check] [--repo <owner/name>]`: Show the ticket config of the repo (.github/papercuts.json): kinds, fields, presets, labels, warnings.
+- `papercuts init`: Set up papercuts in the repo of an app: a starter .github/papercuts.json, the AGENTS.md block, and the steps for your stack.
 - `papercuts shot <id> [--out <file>] [--repo <owner/name>]`: Save the picture of a papercut as a PNG file.
 - `papercuts replay <id> [--out <file>] [--base <url>] [--repo <owner/name>]`: Show what the reporter saw: the page with the same size, place and storage, the element in a red frame.
 - `papercuts import <file.json>`: File a report that the widget saved as a file (?papercuts=download). A second import is a no-op.

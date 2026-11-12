@@ -37,7 +37,7 @@ export function targetRepo(report, target) {
   return target?.mode === 'central' ? target.centralRepo : report.repo;
 }
 
-export async function fileReport(report, { client, target, shots, publicUrl }) {
+export async function fileReport(report, { client, target, shots, publicUrl, config }) {
   const repo = targetRepo(report, target);
   const found = (issue, deduped) => ({ ok: true, issue: issue.number, url: issue.html_url, deduped, repo });
   try {
@@ -53,7 +53,7 @@ export async function fileReport(report, { client, target, shots, publicUrl }) {
         return found(match, true);
       }
     }
-    const issue = buildIssue(report, target, report.shot ? await savePicture(report, repo, { client, shots, publicUrl }) : {});
+    const issue = buildIssue(report, target, { ...(report.shot ? await savePicture(report, repo, { client, shots, publicUrl }) : {}), config });
     await client.ensureLabels(repo, issue.labels);
     return found(await client.createIssue(repo, issue), false);
   } catch (e) {

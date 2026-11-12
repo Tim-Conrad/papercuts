@@ -60,6 +60,27 @@ function cleanContext(value, depth = 0) {
   return undefined;
 }
 
+const rectOf = (r) => (r && typeof r === 'object'
+  ? { x: Math.round(Number(r.x) || 0), y: Math.round(Number(r.y) || 0), w: Math.round(Number(r.w) || 0), h: Math.round(Number(r.h) || 0) } : undefined);
+
+// The parts of the page that the person marked: elements and boxes, numbered, each with an optional note.
+function cleanMarks(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((m) => m && (m.type === 'element' || m.type === 'box')).slice(0, 10).map((m, i) => {
+    const out = { nr: Number.isInteger(m.nr) ? m.nr : i + 1, type: m.type };
+    if (m.type === 'element') {
+      out.name = shorten(clean(String(m.name ?? '')), 80);
+      out.text = shorten(clean(String(m.text ?? '').replace(/\s+/g, ' ').trim()), 120);
+      out.selector = String(m.selector ?? '').slice(0, 300);
+    }
+    const rect = rectOf(m.rect);
+    if (rect) out.rect = rect;
+    const note = shorten(clean(String(m.note ?? '').replace(/\s+/g, ' ').trim()), 200);
+    if (note) out.note = note;
+    return out;
+  });
+}
+
 // Where the reporter was: the page can scroll back there. Kept exact (only redacted) for the marker.
 function cleanPlace(p) {
   if (!p || typeof p !== 'object') return undefined;
@@ -72,6 +93,11 @@ function cleanPlace(p) {
   if (p.viewport && typeof p.viewport === 'object') place.viewport = { width: num(p.viewport.width), height: num(p.viewport.height) };
   if (p.selector) place.selector = String(p.selector).slice(0, 300);
   // Clicks that bring the page back to the reported state, for example a dialog without a URL (window.papercutsReplay).
+  if (Array.isArray(p.marks)) {
+    const marks = p.marks.slice(0, 10).map((m) => (m && typeof m.selector === 'string' ? { selector: m.selector.slice(0, 300) }
+      : m && m.box ? { box: rectOf(m.box) } : null)).filter(Boolean);
+    if (marks.length) place.marks = marks;
+  }
   if (Array.isArray(p.steps)) {
     const steps = p.steps.filter((x) => x && typeof x.click === 'string' && x.click).slice(0, 5).map((x) => ({ click: x.click.slice(0, 300) }));
     if (steps.length) place.steps = steps;
@@ -114,7 +140,8 @@ export function normalizeReport(input, from) {
     nr: Number.isInteger(p?.nr) ? p.nr : i + 1,
     text: shorten(clean(String(p?.text ?? '').replace(/\s+/g, ' ').trim()), LIMITS.pin),
   }));
-  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context, place, shot, pins } };
+  const marks = cleanMarks(src.marks);
+  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context, place, shot, pins, ...(marks.length ? { marks } : {}) } };
 }
 
 export function fingerprint(report) {
@@ -122,10 +149,10 @@ export function fingerprint(report) {
   return createHash('sha256').update(`${report.kind}|${norm(report.where)}|${norm(report.text)}`).digest('hex').slice(0, 16);
 }
 
-export function labelsFor(report, target) {
+export function labelsFor(report, target, extra = []) {
   const labels = ['papercut', `from:${report.from}`, `kind:${report.kind}`];
   if (target?.mode === 'central') labels.push(`project:${report.repo}`);
-  return labels;
+  return [...new Set([...labels, ...extra])];
 }
 
 function yamlValue(v) {
@@ -169,14 +196,29 @@ function placeMarkerFor(place) {
   return undefined;
 }
 
-export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
-  const title = `papercut: ${report.text.slice(0, LIMITS.title)}`;
+export function buildIssue(report, target, { shotUrl, shotNote, config } = {}) {
+  const cut = report.text.length > LIMITS.title;
+  const title = `papercut: ${cut ? `${report.text.slice(0, LIMITS.title - 1).trimEnd()}…` : report.text}`;
   const extra = [];
+  // The fields of .github/papercuts.json, one line each, with the label of the repo.
+  const fieldLines = Object.entries(report.fields || {}).map(([id, v]) => {
+    const label = ((config && config.fields) || []).find((f) => f.id === id)?.label || id;
+    return `**${clean(label)}** ${v}`;
+  });
+  if (fieldLines.length) extra.push(fieldLines.join('  \n'));
   if (shotUrl) extra.push(`![papercut](${shotUrl})`);
   else if (shotNote) extra.push(`_${shotNote}_`);
+  if (report.marks?.length) {
+    extra.push(['**Marked**', ...report.marks.map((m) => {
+      const what = m.type === 'element'
+        ? `\`${m.name || m.selector}\`${m.text ? ` “${m.text}”` : ''}`
+        : `a region of ${m.rect?.w ?? 0}×${m.rect?.h ?? 0} px at ${m.rect?.x ?? 0}, ${m.rect?.y ?? 0}`;
+      return `${m.nr}. ${what}${m.note ? ` — ${m.note}` : ''}`;
+    })].join('\n'));
+  }
   if (report.pins?.length) extra.push(report.pins.map((p) => `${p.nr}. ${p.text || '(no text)'}`).join('\n'));
   const lead = [report.text, ...extra].join('\n\n');
-  const head = { kind: report.kind, from: report.from, where: report.where, repo: report.repo };
+  const head = { kind: report.kind, from: report.from, where: report.where, repo: report.repo, ...(report.fields && Object.keys(report.fields).length ? { fields: report.fields } : {}) };
   let meta = yamlLines({ ...head, context: report.context }).join('\n');
   const markers = [`<!-- papercut-id: ${report.id} -->`];
   if (report.from === 'agent') markers.push(`<!-- papercut-fp: ${fingerprint(report)} -->`);
@@ -186,7 +228,8 @@ export function buildIssue(report, target, { shotUrl, shotNote } = {}) {
   const room = Math.max(0, LIMITS.body - lead.length - markers.join('\n').length - 40);
   meta = shorten(meta, room);
   const body = `${lead}\n\n\`\`\`yaml\n${meta}\n\`\`\`\n\n${markers.join('\n')}\n`;
-  return { title, body, labels: labelsFor(report, target) };
+  const labels = [...(config?.labels || []), ...((config?.labelsByKind || {})[report.kind] || [])];
+  return { title, body, labels: labelsFor(report, target, labels), ...(config?.assignees?.length ? { assignees: config.assignees } : {}) };
 }
 
 export function parseMarkers(body) {

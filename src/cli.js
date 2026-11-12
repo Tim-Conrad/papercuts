@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { toon } from './toon.js';
 import { openPapercuts } from './list.js';
+import { loadRepoConfig, normalizeFields, checkConfigText, CONFIG_PATH } from './ticket.js';
+import { initRepo } from './init.js';
 import { normalizeReport, redact, shorten, parseMarkers, KINDS } from './format.js';
 import { execFile } from 'node:child_process';
 import { fileReport, targetRepo } from './file.js';
@@ -23,11 +25,11 @@ const HOOK_ROWS = 10;
 
 const COMMANDS = {
   add: {
-    usage: 'papercuts add <kind> "<text>" [--where <place>] [--repo <owner/name>]',
+    usage: 'papercuts add <kind> "<text>" [--where <place>] [--field <id>=<value>]... [--repo <owner/name>]',
     about: 'Report one papercut as an agent. A repeat of an open papercut adds +1 to it.',
     args: ['kind', 'text'],
-    flags: { where: 'string', repo: 'string' },
-    defaults: ['--where: empty', '--repo: the git remote "origin" of this folder', `kinds: ${KINDS.join(', ')}`],
+    flags: { where: 'string', repo: 'string', field: 'list' },
+    defaults: ['--where: empty', '--field: the fields of .github/papercuts.json (run `papercuts config`)', '--repo: the git remote "origin" of this folder', `kinds: ${KINDS.join(', ')}`],
     examples: ['papercuts add tool "gh-axi pr view drops the PR body" --where "gh-axi pr view"',
       'papercuts add path "AGENTS.md names scripts/check.sh, but the file is tools/check.sh"',
       'papercuts add rule "Two rules disagree about the branch name" --repo Tim-Conrad/lab'],
@@ -56,6 +58,22 @@ const COMMANDS = {
     required: ['fix'],
     defaults: ['--fix: required'],
     examples: ['papercuts done 12 --fix "gh-axi pr view prints the body since commit abc1234"'],
+  },
+  config: {
+    usage: 'papercuts config [--file <path>] [--check] [--repo <owner/name>]',
+    about: 'Show the ticket config of the repo (.github/papercuts.json): kinds, fields, presets, labels, warnings.',
+    args: [],
+    flags: { check: 'bool', repo: 'string', file: 'string' },
+    defaults: ['--check: exit 1 if the config has a warning (for CI)', '--file: check a local file offline, before the push', 'without --file: reads the default branch on GitHub, like the relay'],
+    examples: ['papercuts config', 'papercuts config --file .github/papercuts.json --check', 'papercuts config --check'],
+  },
+  init: {
+    usage: 'papercuts init',
+    about: 'Set up papercuts in the repo of an app: a starter .github/papercuts.json, the AGENTS.md block, and the steps for your stack.',
+    args: [],
+    flags: {},
+    defaults: ['never overwrites a file; a second run is a no-op'],
+    examples: ['papercuts init'],
   },
   shot: {
     usage: 'papercuts shot <id> [--out <file>] [--repo <owner/name>]',
@@ -160,7 +178,8 @@ function parse(argv) {
       if (spec[name] === 'bool') { flags[name] = true; continue; }
       const value = inline ?? rest[++i];
       if (value === undefined) throw usageError(`--${name} needs a value`, `Run \`papercuts ${command || ''} --help\``.replace('  ', ' '));
-      flags[name] = value;
+      if (spec[name] === 'list') (flags[name] ??= []).push(value);
+      else flags[name] = value;
       continue;
     }
     args.push(token);
@@ -226,6 +245,19 @@ If a papercut needs a decision from Tim, do not close it. Write two or three opt
 `;
 }
 
+function configView(c, label, help) {
+  const out = { config: label, kinds: c.config.kinds.join(', ') };
+  out.fields = c.config.fields.length
+    ? c.config.fields.map((f) => ({ id: f.id, label: f.label, required: f.required, options: (f.options || []).join('|') }))
+    : 'none';
+  out.presets = c.config.presets.length ? c.config.presets : 'none';
+  out.labels = [...c.config.labels, ...Object.entries(c.config.labelsByKind).map(([k, v]) => `${k}: ${v.join(' ')}`)].join(', ') || 'none';
+  out.assignees = c.config.assignees.join(', ') || 'none';
+  if (c.warnings.length) out.warnings = c.warnings;
+  out.help = help;
+  return out;
+}
+
 function issueNumber(arg, command) {
   const n = Number(arg);
   if (!Number.isInteger(n) || n < 1) throw usageError(`<id> must be an issue number, not "${arg}"`, `usage: ${COMMANDS[command].usage}`);
@@ -258,8 +290,8 @@ async function openRows(client, repo, label) {
 
 function scopeLines(target, centralRepo) {
   return target === 'central'
-    ? [`fine-grained token, repository access: only ${centralRepo}`, 'permission: Issues: read and write']
-    : ['fine-grained token, repository access: each repo in PAPERCUTS_REPOS', 'permission: Issues: read and write'];
+    ? [`fine-grained token, repository access: ${centralRepo}, and the app repos for their ticket config`, 'permissions: Issues: read and write (inbox), Contents: read (app repos, optional)']
+    : ['fine-grained token, repository access: each repo in PAPERCUTS_REPOS', 'permissions: Issues: read and write, Contents: read (for .github/papercuts.json)'];
 }
 
 // Write a temp file, then rename it, so that a crash never leaves half a settings file.
@@ -368,9 +400,26 @@ export async function run(argv, ctx = {}) {
       const norm = normalizeReport(payload?.report, payload?.from ?? 'human');
       if (!norm.ok) throw runError(norm.error, norm.help);
       const client = ctx.client || githubClient({ credential: credentialFrom(config.credential) });
-      const r = await fileReport(norm.report, { client, target: config.target });
+      const repoCfg = (await loadRepoConfig(client, norm.report.repo)).config;
+      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from);
+      if (!fields.ok) throw runError(fields.error, fields.help);
+      norm.report.fields = fields.fields;
+      const r = await fileReport(norm.report, { client, target: config.target, config: repoCfg });
       if (!r.ok) throw runError(r.error, r.help);
       print({ papercut: r.deduped ? `added +1 to #${r.issue}` : `#${r.issue} created`, url: r.url });
+      return 0;
+    }
+
+    if (command === 'config' && flags.file) {
+      let text;
+      try { text = readFileSync(flags.file, 'utf8'); } catch (e) { throw runError(`cannot read ${flags.file}: ${e.code || e.message}`, 'give the path of .github/papercuts.json'); }
+      const c = checkConfigText(text);
+      print(configView({ found: true, ...c }, `${tilde(flags.file, env)} (local file)`, ['Push the file; the relay reads it from the default branch within 5 minutes']));
+      return flags.check && c.warnings.length ? 1 : 0;
+    }
+
+    if (command === 'init') {
+      print(initRepo(cwd, repoFromGit(cwd), env));
       return 0;
     }
 
@@ -385,9 +434,19 @@ export async function run(argv, ctx = {}) {
     const repoLine = config.target.mode === 'central' ? `${repo} (central: ${where})` : repo;
 
     if (command === 'add') {
+      const raw = {};
+      for (const f of flags.field || []) {
+        const m = f.match(/^([^=]+)=(.*)$/s);
+        if (!m) throw usageError(`--field needs id=value, not "${f}"`, 'Run `papercuts config` for the fields of this repo');
+        raw[m[1].trim()] = m[2];
+      }
       const norm = normalizeReport({ kind: args[0], text: args[1], where: flags.where, repo }, 'agent');
       if (!norm.ok) throw runError(norm.error, norm.help);
-      const r = await fileReport(norm.report, { client, target: config.target });
+      const repoCfg = (await loadRepoConfig(client, repo)).config;
+      const fields = normalizeFields(raw, repoCfg);
+      if (!fields.ok) throw runError(fields.error, fields.help);
+      norm.report.fields = fields.fields;
+      const r = await fileReport(norm.report, { client, target: config.target, config: repoCfg });
       if (!r.ok) throw runError(r.error, r.help);
       print({ papercut: r.deduped ? `added +1 to #${r.issue}` : `#${r.issue} created`, url: r.url });
       return 0;
@@ -408,6 +467,13 @@ export async function run(argv, ctx = {}) {
       out.help = cut ? [`Run \`papercuts view ${n} --full${r}\` for the whole body`] : [`Run \`papercuts done ${n} --fix "<what changed>"${r}\` after a fix`];
       print(out);
       return 0;
+    }
+
+    if (command === 'config') {
+      const c = await loadRepoConfig(client, repo);
+      print(configView(c, c.found ? `${CONFIG_PATH} of ${repo}` : `no ${CONFIG_PATH} in ${repo}, defaults apply`,
+        c.found ? [`Edit ${CONFIG_PATH} on the default branch; the relay reads it within 5 minutes`] : ['Run `papercuts init` to create a starter config']));
+      return flags.check && c.warnings.length ? 1 : 0;
     }
 
     if (command === 'shot') {
@@ -445,7 +511,7 @@ export async function run(argv, ctx = {}) {
         url = flags.base.replace(/\/$/, '') + u.pathname + u.search + u.hash;
       }
       const data = { url, viewport: place.viewport || { width: 1280, height: 800 }, scrollX: place.scrollX, scrollY: place.scrollY,
-        selector: place.selector || '', storage: place.storage || {}, steps: place.steps || [], out: flags.out || join(cwd, `papercut-${n}.replay.png`) };
+        selector: place.selector || '', storage: place.storage || {}, steps: place.steps || [], marks: place.marks || [], out: flags.out || join(cwd, `papercut-${n}.replay.png`) };
       if (await hasUv(env)) {
         const png = await runReplay(data, env);
         print({ replay: tilde(png, env) });
@@ -454,7 +520,8 @@ export async function run(argv, ctx = {}) {
       print({
         replay: { url, viewport: `${data.viewport.width}x${data.viewport.height}`, scroll: `${data.scrollX},${data.scrollY}`,
           selector: data.selector || 'none', storage: Object.keys(data.storage).join(',') || 'none',
-          steps: data.steps.map((x) => `click ${x.click}`).join(', ') || 'none' },
+          steps: data.steps.map((x) => `click ${x.click}`).join(', ') || 'none',
+          marks: data.marks.map((m, i) => (m.selector ? `${i + 1} ${m.selector}` : `${i + 1} box ${m.box.w}x${m.box.h} at ${m.box.x},${m.box.y}`)).join(', ') || 'none' },
         help: ['Install uv for a replay picture (https://docs.astral.sh/uv/)', 'Or open the url in your browser with this viewport, set the storage keys, run the steps, scroll, and look at the selector'],
       });
       return 0;

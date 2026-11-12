@@ -99,7 +99,7 @@ test('body too large', async () => {
 test('status and healthz', async () => {
   const s = await (await fetch(base + '/status', { headers: { origin: ALLOWED } })).json();
   assert.equal(s.ok, true);
-  assert.equal(s.version, '0.2.2');
+  assert.equal(s.version, '0.3.0');
   assert.equal(await (await fetch(base + '/healthz')).text(), 'ok');
 });
 
@@ -279,4 +279,70 @@ test('list: also papercuts closed in the last 14 days, with the fix note', async
   assert.equal(item.state, 'closed');
   assert.equal(item.fix, 'the button is larger since abc1234');
   assert.equal(j.items.find((i) => i.issue === open.issue).state, 'open');
+});
+
+const CONFIG = {
+  fields: [{ id: 'expected', label: 'What did you expect?', required: true }, { id: 'device', label: 'Device', options: ['phone', 'desktop'] }],
+  presets: [{ kind: 'ux', text: 'Too small to tap' }],
+  labels: ['area:web'], labelsByKind: { bug: ['bug'] }, assignees: ['Tim-Conrad'],
+};
+const withConfig = (cfg = CONFIG, repo = 'Tim-Conrad/shop') => { gh.state.files[repo] = { '.github/papercuts.json': typeof cfg === 'string' ? cfg : JSON.stringify(cfg) }; };
+
+test('config: the relay serves the checked config of the repo', async () => {
+  withConfig();
+  const res = await fetch(`${base}/config?repo=Tim-Conrad/shop`, { headers: { origin: ALLOWED } });
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.equal(j.ok, true);
+  assert.equal(j.found, true);
+  assert.deepEqual(j.warnings, []);
+  assert.equal(j.config.fields[0].id, 'expected');
+  assert.equal(j.config.presets[0].text, 'Too small to tap');
+});
+
+test('config: no file gives the defaults, a broken file gives the defaults and warnings', async () => {
+  let j = await (await fetch(`${base}/config?repo=Tim-Conrad/shop`, { headers: { origin: ALLOWED } })).json();
+  assert.equal(j.found, false);
+  assert.deepEqual(j.config.fields, []);
+  withConfig('{ not json', 'Tim-Conrad/other');
+  j = await (await fetch(`${base}/config?repo=Tim-Conrad/other`, { headers: { origin: ALLOWED } })).json();
+  assert.equal(j.ok, true);
+  assert.match(j.warnings[0], /not valid JSON/);
+});
+
+test('config: a foreign origin gets 403, a repo outside the list gets 403', async () => {
+  assert.equal((await fetch(`${base}/config?repo=Tim-Conrad/shop`, { headers: { origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await fetch(`${base}/config?repo=evil/x`, { headers: { origin: ALLOWED } })).status, 403);
+});
+
+test('report: fields, labels and assignees of the config go into the issue', async () => {
+  withConfig();
+  const res = await post(report({ kind: 'bug', fields: { expected: 'The button opens the cart', device: 'phone' } }));
+  assert.equal(res.status, 200, await res.clone().text());
+  const issue = gh.state.issues['Tim-Conrad/shop'].at(-1);
+  assert.match(issue.body, /\*\*What did you expect\?\*\* The button opens the cart/);
+  assert.match(issue.body, /\*\*Device\*\* phone/);
+  const names = issue.labels.map((l) => l.name);
+  for (const l of ['papercut', 'area:web', 'bug']) assert.ok(names.includes(l), names.join(','));
+  const create = gh.state.requests.find((r) => r.method === 'POST' && r.path.endsWith('/issues'));
+  assert.deepEqual(create.body.assignees, ['Tim-Conrad']);
+});
+
+test('report: a missing required field or an unknown field gives 400 with help', async () => {
+  withConfig();
+  let res = await post({ ...report({ fields: { device: 'phone' } }), from: 'agent' });
+  assert.equal(res.status, 400);
+  let j = await res.json();
+  assert.match(j.error, /"expected" is required/);
+  assert.equal(j.retry, false);
+  res = await post(report({ fields: { expected: 'x', nope: 'y' } }));
+  j = await res.json();
+  assert.match(j.error, /unknown field "nope"/);
+  assert.match(j.help, /expected, device/);
+});
+
+test('report: a person without the required field still files the report', async () => {
+  withConfig();
+  const res = await post(report({ text: 'just feedback' }));
+  assert.equal(res.status, 200, await res.clone().text());
 });

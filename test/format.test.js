@@ -55,7 +55,9 @@ test('rejects unknown source', () => {
 
 test('title is capped', () => {
   const r = ok({ kind: 'ux', text: 'y'.repeat(100), repo: 'a/b' });
-  assert.equal(buildIssue(r, PER).title, 'papercut: ' + 'y'.repeat(70));
+  assert.equal(buildIssue(r, PER).title, 'papercut: ' + 'y'.repeat(69) + '…');
+  const short = normalizeReport({ kind: 'bug', text: 'z'.repeat(70), repo: 'a/b' }, 'human').report;
+  assert.equal(buildIssue(short, PER).title, 'papercut: ' + 'z'.repeat(70));
 });
 
 test('labels per source', () => {
@@ -226,4 +228,27 @@ test('place keeps up to 5 replay steps with a click selector', () => {
   assert.deepEqual(r.place.steps[0], { click: '.karte[data-id="k12"]' });
   assert.equal(r.place.steps[1].click.length, 300);
   assert.ok(r.place.steps.every((s) => typeof s.click === 'string'));
+});
+
+test('marks: elements and boxes, numbered, redacted, at most 10', () => {
+  const marks = [
+    { nr: 1, type: 'element', name: 'button#buy', text: 'Buy', selector: '#buy', rect: { x: 10.4, y: 20, w: 50, h: 30 }, note: 'too small' },
+    { nr: 2, type: 'box', rect: { x: 40, y: 300, w: 320, h: 120 }, note: 'token=abc123456 here' },
+    { nr: 3, type: 'nope' },
+    ...Array.from({ length: 12 }, (_, i) => ({ nr: i + 4, type: 'box', rect: { x: 0, y: 0, w: 1, h: 1 } })),
+  ];
+  const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', marks }, 'human').report;
+  assert.equal(r.marks.length, 10);
+  assert.deepEqual(r.marks[0], { nr: 1, type: 'element', name: 'button#buy', text: 'Buy', selector: '#buy', rect: { x: 10, y: 20, w: 50, h: 30 }, note: 'too small' });
+  assert.equal(r.marks[1].type, 'box');
+  assert.match(r.marks[1].note, /\[redacted\]/);
+  assert.ok(r.marks.every((m) => m.type === 'element' || m.type === 'box'));
+  const { body } = buildIssue(r, { mode: 'per-project' });
+  assert.match(body, /\*\*Marked\*\*\n1\. `button#buy` “Buy” — too small\n2\. a region of 320×120 px at 40, 300 — \[redacted\] here/);
+});
+
+test('place keeps the marks for replay', () => {
+  const place = { url: 'https://a/', marks: [{ selector: '#buy' }, { box: { x: 1, y: 2, w: 3, h: 4 } }, { evil: 1 }] };
+  const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', context: { place } }, 'human').report;
+  assert.deepEqual(r.place.marks, [{ selector: '#buy' }, { box: { x: 1, y: 2, w: 3, h: 4 } }]);
 });

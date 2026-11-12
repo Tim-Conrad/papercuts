@@ -8,6 +8,7 @@ import { normalizeReport } from './format.js';
 import { fileReport } from './file.js';
 import { shotStore } from './shots.js';
 import { listPapercuts } from './list.js';
+import { loadRepoConfig, normalizeFields } from './ticket.js';
 import { originAllowed, repoAllowed, VERSION } from './config.js';
 
 const WIDGET = fileURLToPath(new URL('../widget/papercuts.js', import.meta.url));
@@ -29,9 +30,19 @@ export function createRelay(config, { client }) {
     items.catch(() => listCache.delete(repo));
     return items;
   };
-  const fileOnce = (report) => {
+  // The ticket config of each repo (.github/papercuts.json), 5 minutes per repo.
+  const configCache = new Map();
+  const repoConfig = (repo) => {
+    const hit = configCache.get(repo);
+    if (hit && Date.now() - hit.at < config.configCacheMs) return hit.value;
+    const value = loadRepoConfig(client, repo);
+    configCache.set(repo, { at: Date.now(), value });
+    value.catch(() => configCache.delete(repo));
+    return value;
+  };
+  const fileOnce = (report, repoCfg) => {
     if (!inFlight.has(report.id)) {
-      inFlight.set(report.id, fileReport(report, { client, target: config.target, shots, publicUrl: config.publicUrl }).finally(() => inFlight.delete(report.id)));
+      inFlight.set(report.id, fileReport(report, { client, target: config.target, shots, publicUrl: config.publicUrl, config: repoCfg }).finally(() => inFlight.delete(report.id)));
     }
     return inFlight.get(report.id);
   };
@@ -59,6 +70,19 @@ export function createRelay(config, { client }) {
         if (!png) return send(404, { ok: false, error: 'no such picture', help: 'pictures are at /shots/<report id>.png' });
         res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
         return res.end(png);
+      }
+      if (req.method === 'GET' && url.pathname === '/config') {
+        if (origin && !allowed) return send(403, { ok: false, error: 'origin not allowed', help: 'add the site origin to PAPERCUTS_ORIGINS' }, 'application/json', true);
+        const repo = url.searchParams.get('repo') || '';
+        if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) || !repoAllowed(repo, config.repos)) {
+          return send(403, { ok: false, error: `repo ${repo} not allowed`, help: 'add the repo to PAPERCUTS_REPOS' });
+        }
+        try {
+          const c = await repoConfig(repo);
+          return send(200, { ok: true, repo, found: c.found, config: c.config, warnings: c.warnings });
+        } catch (e) {
+          return send(502, { ok: false, error: `github: ${e.status ?? 0} ${e.message}`, help: 'try again later' });
+        }
       }
       if (req.method === 'GET' && url.pathname === '/list') {
         // A browser sends Origin, and only allowed sites may read titles. The CLI on the proxy network sends none.
@@ -94,7 +118,14 @@ export function createRelay(config, { client }) {
       if (!repoAllowed(norm.report.repo, config.repos)) {
         return send(403, { ok: false, retry: false, error: `repo ${norm.report.repo} not allowed`, help: 'add the repo to PAPERCUTS_REPOS' });
       }
-      const result = await fileOnce(norm.report);
+      let repoCfg;
+      try { repoCfg = (await repoConfig(norm.report.repo)).config; } catch (e) {
+        return send(502, { ok: false, retry: true, error: `github: ${e.status ?? 0} ${e.message}`, help: 'the report waits and goes out later' });
+      }
+      const fields = normalizeFields(payload.report.fields, repoCfg, norm.report.from);
+      if (!fields.ok) return send(400, { ...fields, retry: false });
+      norm.report.fields = fields.fields;
+      const result = await fileOnce(norm.report, repoCfg);
       if (result.ok) listCache.delete(norm.report.repo);
       return send(result.ok ? 200 : result.retry ? 502 : 422, result);
     } catch (e) {
