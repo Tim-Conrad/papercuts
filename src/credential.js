@@ -38,6 +38,8 @@ export function credentialFrom(config = { source: 'gh' }) {
     token: async () => {
       const env = { ...(config.env || process.env) };
       if (config.mount) env.GH_CONFIG_DIR = await configDir();
+      // Another GitHub host (PAPERCUTS_GITHUB_HOST): ask gh for the login of that host.
+      if (config.host) env.GH_HOST = config.host;
       return ghToken(bin, env);
     },
   };

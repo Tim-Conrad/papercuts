@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fakeGithub } from './fake-github.js';
-import { githubClient } from '../src/github.js';
+import { githubClient, GithubError } from '../src/github.js';
 import { run } from '../src/cli.js';
 import { parseRemote } from '../src/repo.js';
 
@@ -221,6 +221,15 @@ test('doctor reports checks', async () => {
   const { code, out } = await cli('doctor');
   assert.equal(code, 0, out);
   assert.match(out, /^checks: 3\/3 passed$/m);
+});
+
+test('doctor accepts a GitHub App installation token (no /user)', async () => {
+  const app = { ...client, user: async () => { throw new GithubError(403, 'Resource not accessible by integration'); }, rateLimit: async () => ({}) };
+  let out = '';
+  const code = await run(['doctor'], { env: { HOME: home }, cwd, client: app, stdout: { write: (s) => { out += s; } } });
+  assert.equal(code, 0, out);
+  assert.match(out, /installation token/);
+  assert.match(out, /GitHub App installation\)/);
 });
 
 test('skill --check detects drift', async () => {

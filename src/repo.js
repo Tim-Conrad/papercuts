@@ -8,7 +8,9 @@ export function parseRemote(url) {
 
 export function repoFromGit(cwd) {
   try {
-    return parseRemote(execFileSync('git', ['remote', 'get-url', 'origin'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }));
+    // The configured URL, not `git remote get-url`: that applies url.<base>.insteadOf, and a rewrite
+    // to a gateway (https://gh.gate/...) would hide that the repo is on GitHub.
+    return parseRemote(execFileSync('git', ['config', '--get', 'remote.origin.url'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }));
   } catch {
     return null;
   }

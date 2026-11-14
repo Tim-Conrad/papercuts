@@ -96,6 +96,8 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', u
 
   return {
     user: () => call('GET', '/user'),
+    // Works for every token kind; /user does not for a GitHub App installation token (403).
+    rateLimit: () => call('GET', '/rate_limit'),
     repo: (repo) => call('GET', `/repos/${repo}`),
     listOpen: (repo, label) => listed(repo, { state: 'open', labels: label }, 300),
     listClosedSince: (repo, label, since) => pages(repo, { state: 'closed', labels: label, since, sort: 'updated', direction: 'desc' }, 100),
@@ -114,6 +116,8 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', u
     async download(url) {
       let u;
       try { u = new URL(url); } catch { throw new GithubError(0, `not a URL: ${url}`); }
+      // Behind a gateway, github.com pictures go through the gateway, which holds the token.
+      if (u.host === 'github.com' && !assetHosts.includes('github.com')) u.host = assetHosts[0];
       if (!assetHosts.includes(u.host)) throw new GithubError(0, `the picture is on ${u.host}, papercuts sends the token only to ${assetHosts.join(', ')}`);
       cached ??= credential.token();
       const token = await cached;

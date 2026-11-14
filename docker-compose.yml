@@ -2,9 +2,14 @@
 # For your own lab, change the host names, the origins, the repos and the uid.
 #
 # Credential: the gh login of the host user, mounted read-only. The container runs as that user,
-# because gh keeps hosts.yml with mode 600. The token has the scopes of your gh login, which is wider
-# than "Issues: read and write". For a narrow token, set PAPERCUTS_CREDENTIAL=file and
+# because gh keeps hosts.yml with mode 600. For a narrow token, set PAPERCUTS_CREDENTIAL=file and
 # PAPERCUTS_TOKEN_FILE to a fine-grained token (see README).
+#
+# This lab reaches GitHub only through a credential gateway (gh.gate on the lab-only network): the
+# gh login holds a dummy token, the gateway adds a short-lived GitHub App token (Issues write, the
+# lab repos only). Without a gateway, drop PAPERCUTS_GITHUB_HOST, NODE_EXTRA_CA_CERTS, the CA mount
+# and extra_hosts. GitHub refuses picture uploads from App tokens, so the relay keeps pictures in
+# the shots volume and links them.
 services:
   papercuts:
     build: .
@@ -22,8 +27,12 @@ services:
       PAPERCUTS_CREDENTIAL: gh
       PAPERCUTS_GH_MOUNT: /gh
       PAPERCUTS_PUBLIC_URL: "https://papercuts.lab.t7d.dev"
+      PAPERCUTS_GITHUB_HOST: gh.gate
+      NODE_EXTRA_CA_CERTS: /gate-ca.crt
+    extra_hosts: ["gh.gate:192.168.101.20"]
     volumes:
       - ${HOME}/.config/gh:/gh:ro
+      - /etc/gate/ca.crt:/gate-ca.crt:ro
       - shots:/data/shots
     labels:
       - traefik.enable=true
