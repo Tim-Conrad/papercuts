@@ -406,7 +406,7 @@ export async function run(argv, ctx = {}) {
     const local = store.mode === 'local';
     const config = loadConfig(env, readConfigFile(env), { store: store.mode });
     // The local store needs no credential and never talks to GitHub.
-    const makeClient = () => (local ? localClient({ dbPath: store.dbPath, root: store.root }) : ctx.client || githubClient({ credential: credentialFrom(config.credential) }));
+    const makeClient = () => (local ? localClient({ dbPath: store.dbPath, root: store.root }) : ctx.client || githubClient({ credential: credentialFrom(config.credential), apiBase: config.github.apiBase, uploadBase: config.github.uploadBase, assetHosts: config.github.assetHosts }));
     const target = local ? { mode: 'per-project' } : config.target;
     if (command === 'serve') {
       const { createRelay } = await import('./relay.js');

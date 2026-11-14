@@ -232,6 +232,7 @@ The relay reads its settings from the environment:
 | `PAPERCUTS_CENTRAL_REPO` | none | The inbox repo for the central target. |
 | `PAPERCUTS_CREDENTIAL` | `gh`, or `file` if a token file is set | `gh` or `file`. |
 | `PAPERCUTS_TOKEN_FILE` | none | A file with a fine-grained token. |
+| `PAPERCUTS_GITHUB_HOST` | `github.com` | Another GitHub host: GitHub Enterprise Server, or a gateway that adds the token (the dev VM's `gh.gate`). The API is then `https://<host>/api/v3`, uploads `https://<host>/api/uploads`, and the gh credential asks for the login of that host. |
 | `PAPERCUTS_GH_MOUNT` | none | A read-only folder with the `gh` login (`config.yml`, `hosts.yml`). The relay gives `gh` a private copy in its temp folder before each call. |
 | `PAPERCUTS_PUBLIC_URL` | none | The public URL of the relay, for the links to pictures that GitHub refused. |
 | `PAPERCUTS_SHOTS_DIR` | `shots` | The folder for those pictures. |

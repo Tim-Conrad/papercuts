@@ -17,6 +17,14 @@ export function readConfigFile(env = process.env) {
   }
 }
 
+// The GitHub that the relay and the CLI talk to. Another host (GitHub Enterprise Server, or a
+// gateway such as https://gh.gate that adds the token on the way out) uses the Enterprise URL layout.
+export function githubHost(host = 'github.com') {
+  if (!/^[A-Za-z0-9.-]+(:[0-9]+)?$/.test(host)) throw new Error(`PAPERCUTS_GITHUB_HOST must be a host name such as ghe.example.com, not "${host}"`);
+  if (host === 'github.com') return { host, apiBase: 'https://api.github.com', uploadBase: 'https://uploads.github.com', assetHosts: ['github.com'] };
+  return { host, apiBase: `https://${host}/api/v3`, uploadBase: `https://${host}/api/uploads`, assetHosts: [host] };
+}
+
 const list = (text) => String(text).split(',').map((s) => s.trim()).filter(Boolean);
 
 function globToRegex(glob) {
@@ -52,12 +60,15 @@ export function loadConfig(env = process.env, file = {}, { store = 'github' } = 
   const source = env.PAPERCUTS_CREDENTIAL || file.credential || (tokenFile ? 'file' : 'gh');
   if (!['gh', 'file'].includes(source)) throw new Error(`PAPERCUTS_CREDENTIAL must be gh or file, not "${source}"`);
   if (source === 'file' && !tokenFile) throw new Error('the file credential needs PAPERCUTS_TOKEN_FILE');
+  const github = githubHost(env.PAPERCUTS_GITHUB_HOST ?? file.githubHost ?? 'github.com');
+  const ghHost = github.host === 'github.com' ? {} : { host: github.host };
   return {
     origins: list(env.PAPERCUTS_ORIGINS || (local ? 'http://localhost,http://localhost:*,http://127.0.0.1,http://127.0.0.1:*' : 'https://*.lab.t7d.dev')),
     repos: list(env.PAPERCUTS_REPOS || (local ? '*/*' : 'Tim-Conrad/*')),
     store,
     target,
-    credential: source === 'file' ? { source: 'file', path: tokenFile } : { source: 'gh', ...(env.PAPERCUTS_GH_MOUNT ? { mount: env.PAPERCUTS_GH_MOUNT } : {}) },
+    credential: source === 'file' ? { source: 'file', path: tokenFile } : { source: 'gh', ...(env.PAPERCUTS_GH_MOUNT ? { mount: env.PAPERCUTS_GH_MOUNT } : {}), ...ghHost },
+    github,
     port: Number(env.PORT || 8000),
     listCacheMs: Number(env.PAPERCUTS_LIST_CACHE_MS ?? 30000),
     configCacheMs: Number(env.PAPERCUTS_CONFIG_CACHE_MS ?? 300000),

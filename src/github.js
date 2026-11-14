@@ -114,6 +114,8 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', u
     async download(url) {
       let u;
       try { u = new URL(url); } catch { throw new GithubError(0, `not a URL: ${url}`); }
+      // Behind a gateway, github.com pictures go through the gateway, which holds the token.
+      if (u.host === 'github.com' && !assetHosts.includes('github.com')) u.host = assetHosts[0];
       if (!assetHosts.includes(u.host)) throw new GithubError(0, `the picture is on ${u.host}, papercuts sends the token only to ${assetHosts.join(', ')}`);
       cached ??= credential.token();
       const token = await cached;
