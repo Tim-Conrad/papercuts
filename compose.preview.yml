@@ -5,6 +5,7 @@ x-preview:
   name: papercuts
   port: 8000
   service: preview
+  path: /status   # the relay has no page at /
 
 services:
   preview:
