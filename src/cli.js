@@ -594,6 +594,7 @@ export async function run(argv, ctx = {}) {
         return passed === checks.length ? 0 : 1;
       }
       await check('credential', async () => (ctx.client ? 'injected' : credential.describe()));
+      let appToken = false;
       await check('token valid', async () => {
         try {
           return `logged in as ${(await client.user()).login}`;
@@ -601,11 +602,14 @@ export async function run(argv, ctx = {}) {
           // A GitHub App installation token (e.g. from a credential gateway) may not read /user.
           if (e.status !== 403) throw e;
           await client.rateLimit();
+          appToken = true;
           return 'valid (GitHub App installation token, no user)';
         }
       });
       await check('issue access', async () => {
         const info = await client.repo(where);
+        // For an App installation token, permissions describe no user: the installation decides.
+        if (appToken) return `${where} (GitHub App installation)`;
         if (info.permissions && !info.permissions.push && !info.permissions.triage) throw new Error(`no write access to ${where}`);
         return where;
       });

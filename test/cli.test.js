@@ -229,6 +229,7 @@ test('doctor accepts a GitHub App installation token (no /user)', async () => {
   const code = await run(['doctor'], { env: { HOME: home }, cwd, client: app, stdout: { write: (s) => { out += s; } } });
   assert.equal(code, 0, out);
   assert.match(out, /installation token/);
+  assert.match(out, /GitHub App installation\)/);
 });
 
 test('skill --check detects drift', async () => {
