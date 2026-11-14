@@ -1,3 +1,7 @@
 .superpowers/
 node_modules/
 secrets/
+
+# wt previews: throwaway data
+.preview/
+.venv/
