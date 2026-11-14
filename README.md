@@ -310,3 +310,11 @@ node bin/papercuts.js skill --check
 ## License
 
 MIT. See [LICENSE](https://github.com/Tim-Conrad/papercuts/blob/main/LICENSE).
+
+## Development (dev VM)
+
+- `direnv allow` (or `nix develop`) loads the tools from `flake.nix`. Python packages go into `.venv` from the repo's own pins.
+- Tests: `npm test`.
+- `wt up` starts the preview of this checkout or worktree: `https://<branch>--papercuts.review.t7d.dev`. `https://papercuts.review.t7d.dev` shows the current worktree (`wt switch <branch>`), and `https://review.t7d.dev` lists all previews.
+- The relay of this worktree with a local store in .preview/ (no GitHub issues). Status page: /status.
+- `wt new <branch>` makes a worktree, `wt ls` lists them, `wt rm <branch>` removes one. The preview is defined in `compose.preview.yml`.

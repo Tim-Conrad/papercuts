@@ -1,0 +1,23 @@
+# Preview of this worktree: `wt up` -> https://<branch>--papercuts.review.t7d.dev
+# (https://papercuts.review.t7d.dev for the current one, see `wt switch`).
+# The relay of this worktree with a local store in .preview/ (no GitHub issues). Status page: /status.
+x-preview:
+  name: papercuts
+  port: 8000
+  service: preview
+
+services:
+  preview:
+    build: .
+    restart: unless-stopped
+    mem_limit: 256m
+    # Rootless Docker: container root is the unprivileged developer user, who owns .preview/.
+    user: "0:0"
+    environment:
+      PAPERCUTS_STORE: "local"
+      PAPERCUTS_DB: "/data/papercuts.db"
+      PAPERCUTS_HOST: "0.0.0.0"
+      PAPERCUTS_ORIGINS: "https://${PREVIEW_HOST}"
+      PAPERCUTS_PUBLIC_URL: "https://${PREVIEW_HOST}"
+    volumes:
+      - ./.preview/data:/data
