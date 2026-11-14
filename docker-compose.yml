@@ -14,7 +14,7 @@ services:
   papercuts:
     build: .
     restart: unless-stopped
-    user: "${PAPERCUTS_UID:-1001}:${PAPERCUTS_GID:-1001}"
+    user: "${PAPERCUTS_UID:-1000}:${PAPERCUTS_GID:-100}"   # the lab VM user (developer: uid 1000, group users)
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 256m   # one report with an 8 MB picture needs about 55 MB while it is parsed
