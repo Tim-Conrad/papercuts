@@ -96,6 +96,8 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', u
 
   return {
     user: () => call('GET', '/user'),
+    // Works for every token kind; /user does not for a GitHub App installation token (403).
+    rateLimit: () => call('GET', '/rate_limit'),
     repo: (repo) => call('GET', `/repos/${repo}`),
     listOpen: (repo, label) => listed(repo, { state: 'open', labels: label }, 300),
     listClosedSince: (repo, label, since) => pages(repo, { state: 'closed', labels: label, since, sort: 'updated', direction: 'desc' }, 100),

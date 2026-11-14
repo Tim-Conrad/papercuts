@@ -594,7 +594,16 @@ export async function run(argv, ctx = {}) {
         return passed === checks.length ? 0 : 1;
       }
       await check('credential', async () => (ctx.client ? 'injected' : credential.describe()));
-      await check('token valid', async () => `logged in as ${(await client.user()).login}`);
+      await check('token valid', async () => {
+        try {
+          return `logged in as ${(await client.user()).login}`;
+        } catch (e) {
+          // A GitHub App installation token (e.g. from a credential gateway) may not read /user.
+          if (e.status !== 403) throw e;
+          await client.rateLimit();
+          return 'valid (GitHub App installation token, no user)';
+        }
+      });
       await check('issue access', async () => {
         const info = await client.repo(where);
         if (info.permissions && !info.permissions.push && !info.permissions.triage) throw new Error(`no write access to ${where}`);
