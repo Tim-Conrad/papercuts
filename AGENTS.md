@@ -37,6 +37,7 @@ the phone tells which build runs; name the variable `APP_VERSION` in the code (`
 looks for it). It is also in the image label `org.opencontainers.image.version`.
 
 ## Commands
+
 - `nix flake check`: the checks of `nix/local.nix` and the image build. Run it before every PR.
 - `wt up`: preview of this worktree; `/dev.html` there shows the devices.
 - `nix run .#icons` after a change to `icon.svg`.

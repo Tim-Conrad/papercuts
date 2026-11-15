@@ -1,5 +1,5 @@
 # Written by Copier (app-template). Do not edit: `app-sync` reads it.
-_commit: c18c5f9
+_commit: 026e949
 _src_path: https://github.com/Tim-Conrad/app-template.git
 description: 'Feedback relay and CLI: friction reports as GitHub issues'
 github_repo: Tim-Conrad/papercuts
