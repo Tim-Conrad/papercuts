@@ -62,4 +62,6 @@ in
     lint = tpl.runCheck "lint" checkSrc [ tpl.biome ] "biome ci --no-errors-on-unmatched .";
   };
   iconDir = ".";
+  # A new shots volume takes the owner of this folder, so uid 1000 can write pictures.
+  dataDirs = [ "data/shots" ];
 }

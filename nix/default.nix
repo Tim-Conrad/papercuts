@@ -44,8 +44,13 @@ let
     papercutsPages = [ "index.html" ];
     # Where icon.svg lives and the PNG icons go (`nix run .#icons`).
     iconDir = if custom then "." else "frontend/public";
-    # Extra tools in the dev shell.
+    # Extra tools, environment variables and shell code for the dev shell.
     devPackages = [ ];
+    devEnv = { };
+    devShellHook = "";
+    # Folders in the image owned by uid 1000, e.g. [ "data/shots" ] for a named volume mounted
+    # there (Docker copies the owner into a new volume).
+    dataDirs = [ ];
   }
   // localFn (builtins.intersectAttrs (builtins.functionArgs localFn) {
     inherit pkgs lib inputs tpl;
@@ -219,36 +224,6 @@ let
     "t7d.app-template.profile" = profile;
   };
 
-  # Hashed files under /assets are cached for a year, everything else is revalidated
-  # (index.html, sw.js, the manifest, icons), so a deploy reaches every phone.
-  # serve-static builds /tmp/site at start: links to the site, plus the papercuts tag in
-  # local.papercutsPages when PAPERCUTS_URL is set, plus /dev.html when DEV_TOOLS=1.
-  swsConfig = pkgs.writeText "sws.toml" ''
-    [general]
-    host = "0.0.0.0"
-    port = 8000
-    root = "/tmp/site"
-    page-fallback = "/tmp/site/index.html"
-    health = true
-    compression = true
-    cache-control-headers = false
-    directory-listing = false
-    log-level = "info"
-
-    [advanced]
-
-    [[advanced.headers]]
-    source = "**"
-    [advanced.headers.headers]
-    Cache-Control = "no-cache"
-
-    [[advanced.headers]]
-    source = "/assets/**"
-    [advanced.headers.headers]
-    Cache-Control = "public, max-age=31536000, immutable"
-  '';
-
-
   # The device viewer for sites that are not built from the template's frontend (custom).
   devViewer = pkgs.runCommand "${name}-dev-viewer" { nativeBuildInputs = [ pkgs.esbuild ]; } ''
     mkdir -p src/dev $out
@@ -262,39 +237,38 @@ let
     <body><div id="viewer"></div><script type="module" src="/dev-viewer.js"></script></body></html>
     HTML
   '';
+  # Static sites (static and custom profiles) are served by nginx straight from the Nix store.
+  # At start, serve-static writes the few files that depend on the container's environment into
+  # /tmp/pages, which nginx looks at first: the pages of local.papercutsPages with the papercuts
+  # tag (only when PAPERCUTS_URL is set), /version.json, and the device viewer /dev.html (only
+  # with DEV_TOOLS=1). Hashed files under /assets are cached for a year, everything else is
+  # revalidated (index.html, sw.js, the manifest, icons), so a deploy reaches every phone.
+  # (static-web-server refuses symlinks out of its root, so it cannot serve an overlay.)
+  siteRoot =
+    if frontend == null then
+      throw "nix/local.nix of a custom app sets `site` (static files) or `service`"
+    else
+      frontend;
   serveStatic = pkgs.writeShellApplication {
     name = "serve-static";
     runtimeInputs = [
       pkgs.coreutils
       pkgs.gnused
-      pkgs.findutils
     ];
     text = ''
-      site=${
-        if frontend == null then
-          throw "nix/local.nix of a custom app sets `site` (static files) or `service`"
-        else
-          frontend
-      }
-      rm -rf /tmp/site
-      mkdir -p /tmp/site
-      # Links, not copies: the site stays in the read-only Nix store.
-      cp -rs "$site"/. /tmp/site/
-      chmod -R u+w /tmp/site
+      site=${siteRoot}
+      pages=/tmp/pages
+      rm -rf "$pages" /tmp/nginx
+      mkdir -p "$pages" /tmp/nginx
       url=''${PAPERCUTS_URL:-}
       url=''${url%/}
       repo=''${PAPERCUTS_REPO:-${name}}
+      inject=0
       case "$url" in
         "") ;;
         http://* | https://*)
           if [[ $url =~ ^https?://[A-Za-z0-9._:-]+$ && $repo =~ ^[A-Za-z0-9._/-]+$ ]]; then
-            pages=(${lib.escapeShellArgs local.papercutsPages})
-            for page in "''${pages[@]}"; do
-              [ -e "/tmp/site/$page" ] || continue
-              src=$(readlink -f "/tmp/site/$page")
-              rm "/tmp/site/$page"
-              sed "0,/<\/head>/s||<script src=\"$url/papercuts.js\" data-repo=\"$repo\"></script></head>|" "$src" > "/tmp/site/$page"
-            done
+            inject=1
             echo "serve-static: papercuts widget from $url"
           else
             echo "serve-static: PAPERCUTS_URL or PAPERCUTS_REPO is not plain; no papercuts widget" >&2
@@ -302,15 +276,62 @@ let
           ;;
         *) echo "serve-static: PAPERCUTS_URL must start with http:// or https://; no papercuts widget" >&2 ;;
       esac
-      # The version of this build for pages without a build step: GET /version.json.
-      [ -e /tmp/site/version.json ] || printf '{"version":"%s"}\n' "${version}" > /tmp/site/version.json
-      if [ "''${DEV_TOOLS:-}" = 1 ]; then
-        ${lib.optionalString custom ''ln -sf ${devViewer}/dev.html ${devViewer}/dev-viewer.js /tmp/site/''}
-        :
-      else
-        rm -f /tmp/site/dev.html
+      if [ "$inject" = 1 ]; then
+        list=(${lib.escapeShellArgs local.papercutsPages})
+        for page in "''${list[@]}"; do
+          [ -f "$site/$page" ] || continue
+          mkdir -p "$(dirname "$pages/$page")"
+          sed "0,/<\/head>/s||<script src=\"$url/papercuts.js\" data-repo=\"$repo\"></script></head>|" "$site/$page" > "$pages/$page"
+        done
       fi
-      exec ${pkgs.static-web-server}/bin/static-web-server --config-file ${swsConfig}
+      # The version of this build for pages without a build step: GET /version.json.
+      [ -e "$site/version.json" ] || printf '{"version":"%s"}\n' "${version}" > "$pages/version.json"
+      devloc="location = /dev.html { return 404; }"
+      if [ "''${DEV_TOOLS:-}" = 1 ]; then
+        devloc=""
+        ${lib.optionalString custom ''cp ${devViewer}/dev.html ${devViewer}/dev-viewer.js "$pages/"''}
+      fi
+      fallback=$site/index.html
+      [ -f "$pages/index.html" ] && fallback=$pages/index.html
+      cat > /tmp/nginx/nginx.conf <<NGINX
+      daemon off;
+      worker_processes 1;
+      pid /tmp/nginx/nginx.pid;
+      error_log stderr warn;
+      events { worker_connections 256; }
+      http {
+        include ${pkgs.nginx}/conf/mime.types;
+        types { application/manifest+json webmanifest; text/javascript mjs; }
+        default_type application/octet-stream;
+        access_log off;
+        server_tokens off;
+        sendfile on;
+        gzip on;
+        gzip_types text/css text/javascript application/javascript application/json image/svg+xml application/manifest+json;
+        client_body_temp_path /tmp/nginx/body;
+        proxy_temp_path /tmp/nginx/proxy;
+        fastcgi_temp_path /tmp/nginx/fastcgi;
+        uwsgi_temp_path /tmp/nginx/uwsgi;
+        scgi_temp_path /tmp/nginx/scgi;
+        server {
+          listen 8000;
+          root /;
+          disable_symlinks off;
+          autoindex off;
+          location = /health { access_log off; default_type text/plain; return 200 "ok\n"; }
+          $devloc
+          location ^~ /assets/ {
+            add_header Cache-Control "public, max-age=31536000, immutable" always;
+            try_files $site\$uri =404;
+          }
+          location / {
+            add_header Cache-Control "no-cache" always;
+            try_files $pages\$uri $pages\''${uri}index.html $site\$uri $site\''${uri}index.html $fallback =404;
+          }
+        }
+      }
+      NGINX
+      exec ${pkgs.nginx}/bin/nginx -e stderr -c /tmp/nginx/nginx.conf
     '';
   };
   staticConfig = {
@@ -363,6 +384,10 @@ let
       mkdir -p data tmp
       chown 1000:1000 data
       chmod 1777 tmp
+      ${lib.concatMapStrings (d: ''
+        mkdir -p ${lib.escapeShellArg d}
+        chown 1000:1000 ${lib.escapeShellArg d}
+      '') local.dataDirs}
     '';
     config =
       if fullstack then
@@ -542,11 +567,13 @@ in
       pkgs.uv
     ]
     ++ local.devPackages;
-    env = lib.optionalAttrs fullstack {
-      UV_PYTHON = python.interpreter;
-      UV_PYTHON_DOWNLOADS = "never";
-      UV_NO_MANAGED_PYTHON = "1";
-    };
+    env =
+      lib.optionalAttrs fullstack {
+        UV_PYTHON = python.interpreter;
+        UV_PYTHON_DOWNLOADS = "never";
+        UV_NO_MANAGED_PYTHON = "1";
+      }
+      // local.devEnv;
     shellHook = ''
       # Local gates before anything reaches GitHub (.githooks: dep-guard and lint on commit,
       # nix flake check on push).
@@ -566,6 +593,7 @@ in
           (cd "$d" && npm ci --no-audit --no-fund --loglevel=error)
         fi
       done
+      ${local.devShellHook}
     '';
   };
 

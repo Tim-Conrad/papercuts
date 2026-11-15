@@ -6,7 +6,7 @@
 Built from [app-template](https://github.com/Tim-Conrad/app-template) (custom profile).
 The rules: https://github.com/Tim-Conrad/app-template/blob/main/docs/stack.md
 - The app keeps its own code and build (custom profile). `nix/local.nix` says what goes into
-  the image: `site` (static files, served by static-web-server on port 8000) or `service`
+  the image: `site` (static files, served by nginx on port 8000) or `service`
   (its own server on port 8000), plus `runtimePackages`, `env` and `checks`. Every lint and
   test of the app belongs in `checks`, so `nix flake check` runs it.
 - A site gets, at container start: the papercuts tag in `papercutsPages` when `PAPERCUTS_URL`
@@ -18,7 +18,7 @@ The rules: https://github.com/Tim-Conrad/app-template/blob/main/docs/stack.md
 
 ## Icon
 
-`icon.svg in iconDir of nix/local.nix` is the app's face on the home screen, the lab dashboard and the
+`icon.svg` (in the `iconDir` of `nix/local.nix`) is the app's face on the home screen, the lab dashboard and the
 browser tab. Every app has its own; the template's letter is only a placeholder
 (`data-placeholder`, `stack-audit` reports it). Design it from what the app does:
 - One clear idea a person recognises at 48 px (a barcode for a scanner, a checklist for

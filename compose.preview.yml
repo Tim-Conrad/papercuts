@@ -24,6 +24,9 @@ services:
         required: false
     environment:
       DEV_TOOLS: "1"
+      # The preview's own host names (branch and current alias), e.g. for origin checks.
+      PREVIEW_HOST: ${PREVIEW_HOST}
+      PREVIEW_ALIAS: ${PREVIEW_ALIAS}
       PAPERCUTS_URL: "https://pc-${PREVIEW_HOST}"
       PAPERCUTS_REPO: Tim-Conrad/papercuts
 
