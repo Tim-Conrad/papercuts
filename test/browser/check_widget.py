@@ -385,7 +385,7 @@ V03_CONFIG = json.dumps({
 
 FAKE_SPEECH = """
 class FakeSpeech { constructor() { this.lang = ''; }
-  start() { window.__speechLang = this.lang; setTimeout(() => {
+  start() { window.__speechLang = this.lang; if (this.used) return; this.used = true; setTimeout(() => {
     const r = (t, f) => { const a = [{ transcript: t }]; a.isFinal = f; return a; };
     this.onresult && this.onresult({ resultIndex: 0, results: [r('the menu', false)] });
     this.onresult && this.onresult({ resultIndex: 0, results: [r('the menu covers the button', true)] });
@@ -459,6 +459,59 @@ def v03_checks(browser, ctl, page_url, width):
     check(f"{width}: speech uses the page language", page.evaluate("window.__speechLang") == "en", str(page.evaluate("window.__speechLang")))
     phone.close()
     control(ctl, "/config?json=")
+
+
+# Each start() says the next phrase and ends, as Chrome does after a short pause.
+# Without a phrase, it ends with "no-speech" after 5 s, as Chrome does.
+PAUSING_SPEECH = """
+window.__phrases = ['the menu', 'covers the button']; window.__starts = 0;
+class PausingSpeech { constructor() { this.lang = ''; }
+  start() { window.__starts++; const said = window.__phrases.shift();
+    if (said) { setTimeout(() => { const a = [{ transcript: said }]; a.isFinal = true;
+      this.onresult && this.onresult({ resultIndex: 0, results: [a] }); this.onend && this.onend(); }, 50); }
+    else { this.timer = setTimeout(() => { this.onerror && this.onerror({ error: 'no-speech' }); this.onend && this.onend(); }, 5000); } }
+  stop() { clearTimeout(this.timer); this.onend && this.onend(); } }
+window.SpeechRecognition = PausingSpeech; window.webkitSpeechRecognition = PausingSpeech;
+"""
+
+
+def speech_checks(browser, ctl, page_url, width):
+    """A pause to think does not end speech input. Tap stop or 10 s of silence ends it."""
+    def open_speech(phrases):
+        ctx = browser.new_context(viewport={"width": width, "height": 860}, has_touch=True, is_mobile=width < 800)
+        page = ctx.new_page()
+        page.clock.install()
+        page.add_init_script(PAUSING_SPEECH + f"window.__phrases = {json.dumps(phrases)};")
+        page.goto(page_url)
+        ready(page)
+        host = page.locator("papercuts-widget")
+        host.locator(".tab").click()
+        host.locator("button.speak").click()
+        return ctx, page, host
+
+    pressed = lambda host: host.locator("button.speak").get_attribute("aria-pressed")
+    ctx, page, host = open_speech(["the menu", "covers the button"])
+    page.clock.run_for(500)
+    check(f"{width}: speech continues after a pause", host.locator("textarea").input_value() == "the menu covers the button", host.locator("textarea").input_value())
+    page.clock.run_for(6000)
+    check(f"{width}: speech still listens after 6 s of silence", pressed(host) == "true", str(pressed(host)))
+    page.clock.run_for(6000)
+    check(f"{width}: speech stops after 10 s of silence", pressed(host) == "false", str(pressed(host)))
+    check(f"{width}: no warning when words came in", "heard nothing" not in host.locator(".status").inner_text(), host.locator(".status").inner_text())
+    ctx.close()
+
+    ctx, page, host = open_speech(["the menu"])
+    page.clock.run_for(500)
+    host.locator("button.speak").click()
+    starts = page.evaluate("window.__starts")
+    page.clock.run_for(12000)
+    check(f"{width}: tap stop ends speech at once", pressed(host) == "false" and page.evaluate("window.__starts") == starts, f"{pressed(host)} {starts} {page.evaluate('window.__starts')}")
+    ctx.close()
+
+    ctx, page, host = open_speech([])
+    page.clock.run_for(12000)
+    check(f"{width}: silence from the start ends with a plain message", pressed(host) == "false" and "heard nothing" in host.locator(".status").inner_text(), host.locator(".status").inner_text())
+    ctx.close()
 
 
 def active_in_widget(page):
@@ -704,7 +757,7 @@ def main():
                 ctx.close()
 
             for width in (412, 1440):
-                for group in (v2_base_checks, sheet_checks, list_checks, parity_checks, v022_checks, v03_checks, review_checks, mark_checks):
+                for group in (v2_base_checks, sheet_checks, list_checks, parity_checks, v022_checks, v03_checks, speech_checks, review_checks, mark_checks):
                     if not only or group.__name__ in only:
                         group(browser, ctl, page_url, width)
 

@@ -1065,6 +1065,9 @@
     // ---- voice input ----
     const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
     let listening = null;
+    // The browser ends speech input after a short pause. A pause to think must not end it,
+    // so the input starts again until the person taps stop or stays silent this long.
+    const SPEECH_SILENCE_MS = 10000;
     function toggleMic() {
       if (listening) { listening.stop(); return; }
       const rec = new Speech();
@@ -1077,7 +1080,9 @@
       rec.continuous = !matchMedia('(pointer: coarse)').matches;
       // Words show live while the person speaks. The final words replace the live ones.
       let done = '';
+      let heard = false, stopped = false, lastWords = Date.now();
       rec.onresult = (e) => {
+        heard = true; lastWords = Date.now();
         let live = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const said = e.results[i][0].transcript.trim();
@@ -1088,13 +1093,22 @@
         textChanged();
       };
       rec.onend = () => {
+        if (!stopped && Date.now() - lastWords < SPEECH_SILENCE_MS) {
+          try { rec.start(); return; } catch (_) { /* cannot start again: end the input */ }
+        }
+        if (!stopped && !heard) setStatus('warn', t.noSpeech);
         listening = null;
         els.mic.setAttribute('aria-pressed', 'false'); els.mic.setAttribute('aria-label', t.mic); els.mic.title = t.mic;
         els.speak.setAttribute('aria-pressed', 'false'); els.speakLabel.textContent = t.speak;
       };
       const MIC_ERRORS = { 'not-allowed': t.micBlocked, 'service-not-allowed': t.micBlocked, 'no-speech': t.noSpeech, network: t.micNetwork, 'audio-capture': t.micBlocked };
-      rec.onerror = (e) => { if (e.error !== 'aborted') setStatus('warn', MIC_ERRORS[e.error] || t.micFailed); };
-      listening = rec;
+      rec.onerror = (e) => {
+        // "no-speech" is a pause. onend decides if the input continues.
+        if (e.error === 'no-speech' || e.error === 'aborted') return;
+        stopped = true;
+        setStatus('warn', MIC_ERRORS[e.error] || t.micFailed);
+      };
+      listening = { stop() { stopped = true; rec.stop(); } };
       els.mic.setAttribute('aria-pressed', 'true');
       els.mic.setAttribute('aria-label', t.micStop);
       els.mic.title = t.micStop;
