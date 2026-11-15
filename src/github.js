@@ -78,6 +78,8 @@ export function githubClient({ credential, apiBase = 'https://api.github.com', u
       } catch (e) {
         if (e.status === 404) break;
         if (e.status === 410) continue; // a deleted issue keeps its number
+        // A pull request that the token may not read (no "Pull requests" permission) answers 403.
+        if (e.status === 403) continue;
         throw e;
       }
       const names = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
