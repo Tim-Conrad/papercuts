@@ -61,6 +61,13 @@ in
     skill = tpl.runCheck "skill" checkSrc [ tpl.nodejs ] "node bin/papercuts.js skill --check";
     lint = tpl.runCheck "lint" checkSrc [ tpl.biome ] "biome ci --no-errors-on-unmatched .";
   };
+  # The browser check of the widget (test/browser/check_widget.py): Playwright and the
+  # Chromium of nixpkgs. A Chromium that Playwright from PyPI downloads does not start on NixOS.
+  devPackages = [ (tpl.python.withPackages (ps: [ ps.playwright ])) ];
+  devEnv = {
+    PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+    PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+  };
   iconDir = ".";
   # A new shots volume takes the owner of this folder, so uid 1000 can write pictures.
   dataDirs = [ "data/shots" ];

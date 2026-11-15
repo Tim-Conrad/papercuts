@@ -305,7 +305,7 @@ The CLI follows the ten [AXI](https://axi.md) principles:
 
 ```sh
 npm test                 # unit tests (node:test)
-npm run check:browser    # browser check of the widget (Playwright through uv)
+npm run check:browser    # browser check of the widget (Playwright and Chromium of the dev shell)
 node bin/papercuts.js skill --check
 nix flake check          # lint (biome), unit tests, skill check and the image, in the Nix sandbox
 ```

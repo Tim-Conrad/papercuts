@@ -6,7 +6,7 @@ export const KINDS = ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'idea', 'othe
 export const WIDGET_KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
 export const SOURCES = ['human', 'agent'];
 
-export const LIMITS = { text: 300, where: 120, field: 500, errors: 20, body: 60000, title: 70, shot: 8 * 1024 * 1024, pins: 20, pin: 120 };
+export const LIMITS = { text: 3000, where: 120, field: 500, errors: 20, body: 60000, title: 70, shot: 8 * 1024 * 1024, pins: 20, pin: 120 };
 const PNG_MAGIC = Buffer.from('89504e470d0a1a0a', 'hex');
 const PNG_PREFIX = 'data:image/png;base64,';
 
@@ -115,7 +115,7 @@ export function normalizeReport(input, from) {
   if (!KINDS.includes(kind)) return fail(`unknown kind "${kind}"`, `use one of: ${KINDS.join(', ')}`);
   const text = String(src.text ?? '').replace(/\s+/g, ' ').trim();
   if (!text) return fail('text is empty', 'write one sentence about the papercut');
-  if (text.length > LIMITS.text) return fail(`text has ${text.length} chars, the limit is ${LIMITS.text}`, 'write one shorter sentence');
+  if (text.length > LIMITS.text) return fail(`text has ${text.length} chars, the limit is ${LIMITS.text}`, 'write a shorter report');
   const repo = String(src.repo ?? '').trim();
   if (!REPO.test(repo)) return fail(`repo "${repo}" is not owner/name`, 'give the repo as owner/name, for example Tim-Conrad/papercuts');
   const id = src.id == null ? randomUUID() : String(src.id);
@@ -146,7 +146,9 @@ export function normalizeReport(input, from) {
 
 export function fingerprint(report) {
   const norm = (s) => String(s).toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
-  return createHash('sha256').update(`${report.kind}|${norm(report.where)}|${norm(report.text)}`).digest('hex').slice(0, 16);
+  // Only the start of the text: a repeat of the same problem matches although its details differ.
+  // 300 is the old text limit, so the fingerprints of older reports stay the same.
+  return createHash('sha256').update(`${report.kind}|${norm(report.where)}|${norm(report.text).slice(0, 300)}`).digest('hex').slice(0, 16);
 }
 
 export function labelsFor(report, target, extra = []) {
