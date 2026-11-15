@@ -13,7 +13,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { fileReport, targetRepo } from './file.js';
 import { githubClient, GithubError } from './github.js';
 import { credentialFrom } from './credential.js';
-import { loadConfig, readConfigFile, configPath, VERSION } from './config.js';
+import { loadConfig, readConfigFile, configPath } from './config.js';
 import { repoFromGit } from './repo.js';
 import { storeFor, localClient, localRepoName, STORES } from './store.js';
 import { relative } from 'node:path';
@@ -409,13 +409,13 @@ export async function run(argv, ctx = {}) {
     const makeClient = () => (local ? localClient({ dbPath: store.dbPath, root: store.root }) : ctx.client || githubClient({ credential: credentialFrom(config.credential), apiBase: config.github.apiBase, uploadBase: config.github.uploadBase, assetHosts: config.github.assetHosts }));
     const target = local ? { mode: 'per-project' } : config.target;
     if (command === 'serve') {
-      const { createRelay } = await import('./relay.js');
+      const { createRelay, appVersion } = await import('./relay.js');
       const server = createRelay({ ...config, target }, { client: makeClient() });
       // A local relay runs next to a dev server. It listens only on this machine, so that the LAN cannot read the list.
       const host = env.PAPERCUTS_HOST || (local ? '127.0.0.1' : '0.0.0.0');
       await new Promise((r) => server.listen(config.port, host, r));
       const via = local ? `local store ${store.dbPath}` : `target ${target.mode}, credential ${credentialFrom(config.credential).describe()}`;
-      process.stderr.write(`papercuts relay ${VERSION} on ${host}:${config.port}, ${via}, origins ${config.origins.join(' ')}\n`);
+      process.stderr.write(`papercuts relay ${appVersion()} on ${host}:${config.port}, ${via}, origins ${config.origins.join(' ')}\n`);
       await new Promise(() => {});
     }
 

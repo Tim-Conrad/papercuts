@@ -1,24 +1,70 @@
 # Preview of this worktree: `wt up` -> https://<branch>--papercuts.review.t7d.dev
-# (https://papercuts.review.t7d.dev for the current one, see `wt switch`).
-# The relay of this worktree with a local store in .preview/ (no GitHub issues). Status page: /status.
+# wt builds the Nix image (x-preview.nix), loads it and passes its reference as WT_IMAGE.
+# Device viewer (phone and desktop side by side): /dev.html
+# Second service: the papercuts relay at https://pc-<branch>--papercuts.review.t7d.dev.
 x-preview:
   name: papercuts
   port: 8000
   service: preview
-  path: /status   # the relay has no page at /
+  nix: image
 
 services:
   preview:
-    build: .
+    image: ${WT_IMAGE:?wt up sets WT_IMAGE}
     restart: unless-stopped
-    mem_limit: 256m
-    # Rootless Docker: container root is the unprivileged developer user, who owns .preview/.
-    user: "0:0"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    # This app's own preview settings (app-owned, optional), e.g. turning off pushes or alerts
+    # that would go to the live topic.
+    env_file:
+      - path: preview.env
+        required: false
     environment:
-      PAPERCUTS_STORE: "local"
-      PAPERCUTS_DB: "/data/papercuts.db"
-      PAPERCUTS_HOST: "0.0.0.0"
-      PAPERCUTS_ORIGINS: "https://${PREVIEW_HOST}"
-      PAPERCUTS_PUBLIC_URL: "https://${PREVIEW_HOST}"
+      DEV_TOOLS: "1"
+      PAPERCUTS_URL: "https://pc-${PREVIEW_HOST}"
+      PAPERCUTS_REPO: Tim-Conrad/papercuts
+
+  papercuts:
+    # wt builds it from ~/code/papercuts (Nix) and loads it.
+    image: ${WT_PAPERCUTS_IMAGE:?wt up sets WT_PAPERCUTS_IMAGE}
+    # Rootless Docker: container root is developer, the owner of ~/.config/gh (mode 600).
+    user: "0:0"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    mem_limit: 256m
+    environment:
+      PAPERCUTS_ORIGINS: https://${PREVIEW_HOST}
+      PAPERCUTS_REPOS: Tim-Conrad/papercuts
+      PAPERCUTS_TARGET: per-project
+      PAPERCUTS_CREDENTIAL: gh
+      PAPERCUTS_GH_MOUNT: /gh
+      # GitHub through the gate VM, which adds the token.
+      PAPERCUTS_GITHUB_HOST: gh.gate
+      NODE_EXTRA_CA_CERTS: /gate-ca.crt
+      PAPERCUTS_PUBLIC_URL: https://pc-${PREVIEW_HOST}
     volumes:
-      - ./.preview/data:/data
+      - ${HOME}/.config/gh:/gh:ro
+      - ${HOME}/.config/gate/ca.crt:/gate-ca.crt:ro
+      - papercuts-shots:/data/shots
+    extra_hosts: ["gh.gate:192.168.100.20"]
+    networks: [default, proxy]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.${WT_PROJECT}-pc.rule=Host(`pc-${PREVIEW_HOST}`)"
+      - "traefik.http.routers.${WT_PROJECT}-pc.entrypoints=websecure"
+      - "traefik.http.routers.${WT_PROJECT}-pc.tls=true"
+      - "traefik.http.services.${WT_PROJECT}-pc.loadbalancer.server.port=8000"
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  papercuts-shots:

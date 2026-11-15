@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { CONFIG_PATH, checkConfigText } from './ticket.js';
 import { checkouts, localRepoName, readStoreSetting, STORE_DIR, DB_NAME } from './store.js';
 
-const AGENTS_SRC = fileURLToPath(new URL('../AGENTS.md', import.meta.url));
+// The block that `papercuts init` puts into the AGENTS.md of an app (the AGENTS.md of this repo is for its own agents).
+const AGENTS_SRC = fileURLToPath(new URL('./agents-block.md', import.meta.url));
 const SCHEMA_URL = 'https://raw.githubusercontent.com/Tim-Conrad/papercuts/main/schema/papercuts.schema.json';
 
 const read = (dir, f) => { try { return readFileSync(join(dir, f), 'utf8'); } catch { return ''; } };

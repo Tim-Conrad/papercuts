@@ -9,13 +9,18 @@ import { fileReport } from './file.js';
 import { shotStore } from './shots.js';
 import { listPapercuts } from './list.js';
 import { loadRepoConfig, normalizeFields } from './ticket.js';
-import { originAllowed, repoAllowed, VERSION } from './config.js';
+import { originAllowed, repoAllowed } from './config.js';
 
 const WIDGET = fileURLToPath(new URL('../widget/papercuts.js', import.meta.url));
+const ICON = fileURLToPath(new URL('../icon.svg', import.meta.url));
+// The version of this build: APP_VERSION from the Nix image (date of the commit + hash), else package.json.
+const PKG_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+export const appVersion = (env = process.env) => env.APP_VERSION || PKG_VERSION;
 // 8 MB of PNG is about 10.7 MB as base64, plus the context.
 const MAX_BODY = 12 * 1024 * 1024;
 
 export function createRelay(config, { client }) {
+  const version = config.version || appVersion();
   // Two tabs can flush the same queued report at once. The second waits for the first, so one id makes one issue.
   const inFlight = new Map();
   const shots = shotStore(config.shotsDir);
@@ -57,12 +62,21 @@ export function createRelay(config, { client }) {
     };
     const url = new URL(req.url, 'http://relay');
     try {
-      if (req.method === 'GET' && url.pathname === '/healthz') return send(200, 'ok', 'text/plain');
+      if (req.method === 'GET' && url.pathname === '/healthz') return send(200, { ok: true, version });
+      // The relay has no page of its own: / leads to the status, which also passes the login proxy.
+      if (req.method === 'GET' && url.pathname === '/') {
+        res.writeHead(302, { location: '/status', 'cache-control': 'no-cache' });
+        return res.end();
+      }
+      if (req.method === 'GET' && url.pathname === '/icon.svg') {
+        res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff' });
+        return res.end(readFileSync(ICON));
+      }
       if (req.method === 'GET' && url.pathname === '/papercuts.js') {
         return send(200, readFileSync(WIDGET, 'utf8'), 'text/javascript; charset=utf-8');
       }
       if (req.method === 'GET' && url.pathname === '/status') {
-        return send(200, { ok: true, version: VERSION, target: config.target.mode });
+        return send(200, { ok: true, version, target: config.target.mode });
       }
       if (req.method === 'GET' && url.pathname.startsWith('/shots/')) {
         const m = url.pathname.match(/^\/shots\/([A-Za-z0-9_-]{1,64})\.png$/);
@@ -97,7 +111,7 @@ export function createRelay(config, { client }) {
           return send(502, { ok: false, error: `github: ${e.status ?? 0} ${e.message}`, help: 'try again later' });
         }
       }
-      if (url.pathname !== '/report') return send(404, { ok: false, error: 'not found', help: 'the relay has /papercuts.js, /status, /report, /list and /shots/<id>.png' });
+      if (url.pathname !== '/report') return send(404, { ok: false, error: 'not found', help: 'the relay has /papercuts.js, /status, /healthz, /icon.svg, /report, /list and /shots/<id>.png' });
       if (req.method !== 'POST') return send(405, { ok: false, error: 'use POST', help: 'POST a JSON text body to /report' });
       // The page must be able to read this refusal, or it takes it for a network error and retries forever.
       if (!allowed) return send(403, { ok: false, retry: false, error: 'origin not allowed', help: 'add the site origin to PAPERCUTS_ORIGINS' }, 'application/json', true);

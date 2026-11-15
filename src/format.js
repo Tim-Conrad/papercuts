@@ -156,7 +156,7 @@ export function labelsFor(report, target, extra = []) {
 }
 
 function yamlValue(v) {
-  if (typeof v === 'string' && /^[^:#\n"'{}\[\],&*!|>%@`-][^:#\n"{}\[\]]*$/.test(v) && v.trim() === v) return v;
+  if (typeof v === 'string' && /^[^:#\n"'{}[\],&*!|>%@`-][^:#\n"{}[\]]*$/.test(v) && v.trim() === v) return v;
   return JSON.stringify(v);
 }
 

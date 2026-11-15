@@ -1,0 +1,40 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!.preview",
+      "!docs",
+      "!test/browser/page.html"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        "useTemplate": "off"
+      },
+      "complexity": {
+        "useOptionalChain": "off",
+        "noUselessStringRaw": "off",
+        "noAdjacentSpacesInRegex": "off",
+        "noImportantStyles": "off"
+      },
+      "suspicious": {
+        "noAssignInExpressions": "off",
+        "noTemplateCurlyInString": "off"
+      },
+      "correctness": {
+        "noUnusedFunctionParameters": "off"
+      }
+    }
+  }
+}

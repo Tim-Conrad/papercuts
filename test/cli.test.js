@@ -460,7 +460,7 @@ test('replay prints the marks', async () => {
 
 test('the package ships replay and the schema', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  for (const dir of ['bin', 'src', 'widget', 'replay', 'schema', 'skills', 'AGENTS.md']) assert.ok(pkg.files.includes(dir), dir);
+  for (const dir of ['bin', 'src', 'widget', 'replay', 'schema', 'skills']) assert.ok(pkg.files.includes(dir), dir);
 });
 
 test('config --file checks a local file offline', async () => {

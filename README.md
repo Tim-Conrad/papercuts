@@ -179,7 +179,7 @@ if (window.papercuts) {
 
 `report()` takes `kind`, `text`, `where`, `fields`, `marks` and `from` (`"agent"` by default, `"human"` for a report that a person wrote in the app's own form). `report()` never throws. It returns `{ ok, issue, url, deduped }`, or `{ ok: false, error, help, queued }`. A report that the relay cannot take now waits in the browser (IndexedDB) and goes out later. The browser removes known secret patterns before it stores a report.
 
-The repo includes a skill for agents (`skills/papercuts/SKILL.md`). The file `AGENTS.md` holds a block to copy into the `AGENTS.md` of a project.
+The repo includes a skill for agents (`skills/papercuts/SKILL.md`). The file `src/agents-block.md` holds the block that `papercuts init` puts into the `AGENTS.md` of a project; you can also copy it by hand.
 
 ## Setup
 
@@ -247,7 +247,7 @@ PAPERCUTS_ORIGINS="http://localhost:*" PAPERCUTS_REPOS="owner/*" npx github:Tim-
 
 Then use `http://localhost:8000/papercuts.js` in the script tag.
 
-In a home lab, run the container behind your single sign-on proxy. `docker-compose.yml` shows the setup of the author with Traefik and Authelia. It mounts `~/.config/gh` read-only and runs the container as the user that owns it, because `gh` keeps `hosts.yml` with mode 600. Change the host names, the origins, the repos and the user ID for your lab.
+In a home lab, run the container behind your single sign-on proxy. The image is built by Nix: `nix build .#image` (or `nix run .#load`, which loads it into Docker and prints its name); there is no Dockerfile. It runs as uid 1000 with a read-only root, `node` and `gh` inside, and `papercuts` on the PATH (`docker exec <relay> papercuts ...`). `docker-compose.yml` shows the setup of the author with Traefik and Authelia. It mounts `~/.config/gh` read-only and runs the container as the user that owns it, because `gh` keeps `hosts.yml` with mode 600. Change the host names, the origins, the repos and the user ID for your lab.
 
 The widget sends only simple requests: `POST` with `Content-Type: text/plain` and no custom headers. Browsers then send no CORS preflight. A login proxy can therefore stay in front of every route of the relay. The session cookie of the proxy must cover the domain of the site and of the relay. If the login expired, the widget keeps the report and asks you to log in again.
 
@@ -260,7 +260,8 @@ Routes:
 | `GET /list?repo=owner/name` | The open papercuts and the ones closed in the last 14 days, with replies, fix note and place. A browser must come from an allowed origin. |
 | `GET /config?repo=owner/name` | The checked ticket config of the repo, with warnings. A browser must come from an allowed origin. |
 | `GET /shots/<id>.png` | A picture that GitHub refused. |
-| `GET /status`, `GET /healthz` | Health. |
+| `GET /status`, `GET /healthz` | Health, as JSON with the `version` of the build (`APP_VERSION` of the image, else the version in `package.json`). `GET /` leads to `/status`. |
+| `GET /icon.svg` | The icon of the relay (lab dashboard). |
 
 `papercuts shot` reads relay pictures from `PAPERCUTS_RELAY_INTERNAL` if you set it, for example the address of the container on the Docker network. Otherwise it uses the public link.
 
@@ -306,6 +307,7 @@ The CLI follows the ten [AXI](https://axi.md) principles:
 npm test                 # unit tests (node:test)
 npm run check:browser    # browser check of the widget (Playwright through uv)
 node bin/papercuts.js skill --check
+nix flake check          # lint (biome), unit tests, skill check and the image, in the Nix sandbox
 ```
 
 ## License
@@ -314,8 +316,10 @@ MIT. See [LICENSE](https://github.com/Tim-Conrad/papercuts/blob/main/LICENSE).
 
 ## Development (dev VM)
 
-- `direnv allow` (or `nix develop`) loads the tools from `flake.nix`. Python packages go into `.venv` from the repo's own pins.
-- Tests: `npm test`.
-- `wt up` starts the preview of this checkout or worktree: `https://<branch>--papercuts.review.t7d.dev`. `https://papercuts.review.t7d.dev` shows the current worktree (`wt switch <branch>`), and `https://review.t7d.dev` lists all previews.
-- The relay of this worktree with a local store in .preview/ (no GitHub issues). Status page: /status.
-- `wt new <branch>` makes a worktree, `wt ls` lists them, `wt rm <branch>` removes one. The preview is defined in `compose.preview.yml`.
+Built from [app-template](https://github.com/Tim-Conrad/app-template) (custom profile, a service). Pull template changes with `app-sync`. Agent notes: [AGENTS.md](AGENTS.md).
+
+- `direnv allow` (or `nix develop`) loads the tools and turns on the git hooks (`.githooks`: lint on commit, `nix flake check` on push).
+- `nix flake check`: biome, the unit tests, `skill --check` and the image build. The checks live in `nix/local.nix`.
+- `wt up` starts the preview of this checkout or worktree: `https://<branch>--papercuts.review.t7d.dev` (`/` leads to `/status`). It runs the relay of this worktree with a throwaway local store (`preview.env`, no GitHub issues); the `papercuts` service next to it is the relay of the main checkout, like in the preview of every app. `https://review.t7d.dev` lists all previews.
+- Every preview of every app runs the relay image of `~/code/papercuts` (`wt up` builds it with `nix build ~/code/papercuts#image`), so a merge here reaches the next `wt up` of every app.
+- Lab: `./lab-ctl deploy papercuts` builds the image with Nix, tags it `papercuts:latest` and restarts the stack.

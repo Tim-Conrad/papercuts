@@ -1,22 +1,20 @@
 {
-  description = "papercuts (relay, widget, CLI): dev shell";
+  description = "Papercuts";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # nixos-26.05: the stable branch gets security fixes without large version jumps.
+  # `app-update` (dev VM) moves the pins: security fixes at once, everything else after
+  # five days (docs: https://github.com/Tim-Conrad/app-template/blob/main/docs/updates.md).
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+  };
 
+  # Everything lives in nix/ (owned by the template, updated with `app-sync`).
+  # Changes for this app only go into nix/local.nix.
   outputs =
-    { nixpkgs, ... }:
-    let
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-    in
-    {
-      # `direnv allow` (or `nix develop`). Preview: `wt up` (compose.preview.yml).
-      # Tests: npm test
-      devShells.${system}.default = pkgs.mkShell {
-        packages = [
-          pkgs.nodejs_22
-          pkgs.git
-        ];
-      };
+    inputs:
+    import ./nix {
+      inherit inputs;
+      name = "papercuts";
+      profile = "custom";
     };
 }

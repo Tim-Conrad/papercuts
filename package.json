@@ -19,8 +19,7 @@
     "widget",
     "replay",
     "schema",
-    "skills",
-    "AGENTS.md"
+    "skills"
   ],
   "bin": {
     "papercuts": "bin/papercuts.js"

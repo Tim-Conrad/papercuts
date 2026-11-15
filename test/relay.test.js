@@ -4,7 +4,7 @@ import { fakeGithub } from './fake-github.js';
 import { githubClient } from '../src/github.js';
 import { createRelay } from '../src/relay.js';
 import { loadConfig, originAllowed } from '../src/config.js';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -99,8 +99,31 @@ test('body too large', async () => {
 test('status and healthz', async () => {
   const s = await (await fetch(base + '/status', { headers: { origin: ALLOWED } })).json();
   assert.equal(s.ok, true);
-  assert.equal(s.version, '0.4.1');
-  assert.equal(await (await fetch(base + '/healthz')).text(), 'ok');
+  assert.equal(s.version, process.env.APP_VERSION || JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  const h = await (await fetch(base + '/healthz')).json();
+  assert.deepEqual(h, { ok: true, version: s.version });
+});
+
+test('APP_VERSION of the build wins', async () => {
+  const r = createRelay({ ...loadConfig({}), version: '2026.11.15+abc1234' }, { client: null });
+  await new Promise((ok) => r.listen(0, '127.0.0.1', ok));
+  const at = `http://127.0.0.1:${r.address().port}`;
+  try {
+    assert.equal((await (await fetch(at + '/healthz')).json()).version, '2026.11.15+abc1234');
+    assert.equal((await (await fetch(at + '/status')).json()).version, '2026.11.15+abc1234');
+  } finally { await new Promise((ok) => r.close(ok)); }
+});
+
+test('icon and start page', async () => {
+  const icon = await fetch(base + '/icon.svg');
+  assert.equal(icon.status, 200);
+  assert.equal(icon.headers.get('content-type'), 'image/svg+xml');
+  const svg = await icon.text();
+  assert.match(svg, /viewBox="0 0 512 512"/);
+  assert.doesNotMatch(svg, /<text|<script|href=/);
+  const root = await fetch(base + '/', { redirect: 'manual' });
+  assert.equal(root.status, 302);
+  assert.equal(root.headers.get('location'), '/status');
 });
 
 test('origin globs', () => {
