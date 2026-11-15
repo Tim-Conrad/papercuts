@@ -45,8 +45,9 @@ test('rejects bad repo', () => {
   }
 });
 
-test('rejects text over 300 chars', () => {
-  assert.equal(normalizeReport({ kind: 'bug', text: 'x'.repeat(301), repo: 'a/b' }, 'agent').ok, false);
+test('rejects text over 3000 chars', () => {
+  assert.equal(normalizeReport({ kind: 'bug', text: 'x'.repeat(3001), repo: 'a/b' }, 'agent').ok, false);
+  assert.equal(normalizeReport({ kind: 'bug', text: 'x'.repeat(3000), repo: 'a/b' }, 'agent').ok, true);
 });
 
 test('rejects unknown source', () => {
@@ -65,6 +66,19 @@ test('labels per source', () => {
   assert.deepEqual(buildIssue(r, PER).labels, ['papercut', 'from:agent', 'kind:tool']);
   assert.deepEqual(buildIssue(r, { mode: 'central', centralRepo: 'o/inbox' }).labels,
     ['papercut', 'from:agent', 'kind:tool', 'project:a/b']);
+});
+
+test('fingerprint of a short report is the same as before the 3000 limit', () => {
+  // computed with papercuts 99d0dae (text limit 300): open issues keep matching their repeats
+  assert.equal(fingerprint({ kind: 'tool', where: 'tests/check_x.py', text: 'check_x.py fails at line 12 with a timeout' }), '17bfb3f01839c5b3');
+});
+
+test('fingerprint uses the first 300 chars of the text', () => {
+  const start = 'The widget loses the draft when the page reloads. '.repeat(6);
+  const a = { kind: 'bug', where: '#app', text: start + 'Seen on the phone.' };
+  const b = { kind: 'bug', where: '#app', text: start + 'Seen on the desktop, twice, after a long pause.' };
+  assert.equal(fingerprint(a), fingerprint(b));
+  assert.notEqual(fingerprint(a), fingerprint({ ...a, text: 'Other ' + a.text }));
 });
 
 test('fingerprint ignores case, spaces, digits', () => {
@@ -209,7 +223,7 @@ test('place accepts only http and https URLs', () => {
 test('a place with much non-ASCII text keeps the body under the limit', () => {
   const storage = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, '😀'.repeat(250)]));
   const place = { url: 'https://a.lab.t7d.dev/' + '漢'.repeat(400), hash: '#' + '字'.repeat(150), selector: '日本'.repeat(150), storage, scrollX: 0, scrollY: 0 };
-  const big = { text: 'x'.repeat(300), errors: Array.from({ length: 20 }, () => '漢'.repeat(500)) };
+  const big = { text: 'x'.repeat(3000), errors: Array.from({ length: 20 }, () => '漢'.repeat(500)) };
   const r = normalizeReport({ kind: 'ux', text: 'x', repo: 'a/b', context: { place, ...big } }, 'agent').report;
   const { body } = buildIssue(r, { mode: 'per-project' });
   assert.ok(body.length <= 60000, String(body.length));

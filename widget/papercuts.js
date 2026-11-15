@@ -11,6 +11,7 @@
   const POS_KEY = 'papercuts-pos-v1';
   const SEEN_KEY = 'papercuts-seen-v1';
   const MAX_ERRORS = 20;
+  const TEXT_MAX = 3000; // LIMITS.text of src/format.js
   const KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
   // The ticket config of the repo (.github/papercuts.json), from the relay. Page attributes win over it.
   let repoCfg = null;
@@ -1089,7 +1090,7 @@
           if (e.results[i].isFinal) done = `${done} ${said}`.trim();
           else live = `${live} ${said}`.trim();
         }
-        els.text.value = [base, done, live].filter(Boolean).join(' ').slice(0, 300);
+        els.text.value = [base, done, live].filter(Boolean).join(' ').slice(0, TEXT_MAX);
         textChanged();
       };
       rec.onend = () => {
@@ -1190,8 +1191,8 @@
     function setKind(k) { kind = k; }
     function textChanged() {
       const n = els.text.value.length;
-      els.counter.textContent = n >= 200 ? `${n} / 300` : '';
-      els.counter.classList.toggle('near', n >= 270);
+      els.counter.textContent = n >= TEXT_MAX - 500 ? `${n} / ${TEXT_MAX}` : '';
+      els.counter.classList.toggle('near', n >= TEXT_MAX * 0.9);
       // Grow with the text, up to the max height in the CSS.
       els.text.style.height = 'auto';
       els.text.style.height = `${els.text.scrollHeight}px`;
@@ -1322,7 +1323,7 @@
     els.pick = h('button', { type: 'button', class: 'pick pill', onclick: startPicking }, icon('pick'), t.pick);
 
 
-    els.text = h('textarea', { maxlength: '300', rows: '3', placeholder: t.placeholder, 'aria-label': t.title });
+    els.text = h('textarea', { maxlength: String(TEXT_MAX), rows: '3', placeholder: t.placeholder, 'aria-label': t.title });
     els.counter = h('span', { class: 'counter', 'aria-live': 'polite' });
     els.text.addEventListener('input', textChanged);
     els.text.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); });
@@ -1509,7 +1510,7 @@
       open(draft) {
         if (draft && typeof draft === 'object') {
           if (draft.kind && kindsList().includes(draft.kind)) setKind(draft.kind);
-          if (typeof draft.text === 'string') { els.text.value = draft.text.slice(0, 300); textChanged(); }
+          if (typeof draft.text === 'string') { els.text.value = draft.text.slice(0, TEXT_MAX); textChanged(); }
           if (draft.fields && typeof draft.fields === 'object') draftFields = { ...draft.fields };
           // marks: elements or CSS selectors that the feedback is about. Unknown selectors are left out.
           if (Array.isArray(draft.marks)) {

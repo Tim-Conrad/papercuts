@@ -16,7 +16,6 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
 failures = []
-CHROME = "/usr/bin/google-chrome"  # the host Chrome; uv playwright versions often lack their own browser
 
 
 def check(name, ok, detail=""):
@@ -686,7 +685,8 @@ def main():
         urls = json.loads(harness.stdout.readline())
         page_url, ctl = urls["page"], urls["control"]
         with sync_playwright() as p:
-            browser = p.chromium.launch(executable_path=CHROME, headless=True) if Path(CHROME).exists() else p.chromium.launch()
+            # the full Chromium of the dev shell (PLAYWRIGHT_BROWSERS_PATH), not the headless shell
+            browser = p.chromium.launch(channel="chromium", headless=True)
             only = [x for x in os.environ.get("CHECKS", "").split(",") if x]
             for width in (() if only else (412, 1440)):
                 control(ctl, "/mode?m=ok")
@@ -723,6 +723,12 @@ def main():
                 check(f"{width}: no console errors in normal flow", not errors, "; ".join(errors))
                 bad = page.evaluate("papercuts.report({kind: 'nope', text: 'x'})")
                 check(f"{width}: api rejects bad kind without throw", bad.get("ok") is False and "help" in bad and not bad.get("queued"), str(bad))
+                check(f"{width}: textarea takes 3000 chars", host.locator("textarea").get_attribute("maxlength") == "3000")
+                long = page.evaluate("papercuts.report({kind: 'bug', from: 'human', where: 'test', text: 'long report ' + innerWidth + ' ' + 'x'.repeat(2970)})")
+                body = (control(ctl, "/mode?m=ok")["issues"] or [{}])[-1].get("body", "")
+                check(f"{width}: a 3000-char report arrives whole", long.get("ok") and "x" * 2970 in body, str(long))
+                too = page.evaluate("papercuts.report({kind: 'bug', from: 'human', where: 'test', text: 'x'.repeat(3001)})")
+                check(f"{width}: a 3001-char report is refused", too.get("ok") is False and not too.get("queued"), str(too))
 
                 control(ctl, "/mode?m=redirect")
                 q = page.evaluate("papercuts.report({kind: 'bug', text: 'queued while logged out ' + innerWidth, from: 'human'})")
