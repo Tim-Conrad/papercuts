@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Owned by the app template. Fast checks of what is staged; `git commit --no-verify` skips them.
+set -euo pipefail
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -n "$staged" ] || exit 0
+# Lock files: no new vulnerability, no foreign source, no flake pin younger than five days.
+if grep -qxE '(frontend/)?package-lock.json|backend/uv.lock|flake.lock' <<<"$staged"; then
+  nix run --quiet .#dep-guard
+fi
+# Lint and format of the staged sources (the full check runs before push).
+front=$(grep -E '^frontend/.*\.(ts|tsx|js|jsx|json|css)$' <<<"$staged" | sed 's|^frontend/||' || true)
+if [ -n "$front" ]; then
+  (cd frontend && xargs nix run --quiet ..#biome -- check --no-errors-on-unmatched <<<"$front")
+fi
+back=$(grep -E '^backend/.*\.py$' <<<"$staged" | sed 's|^backend/||' || true)
+if [ -n "$back" ]; then
+  (cd backend && xargs nix run --quiet ..#ruff -- check <<<"$back" && xargs nix run --quiet ..#ruff -- format --check <<<"$back")
+fi
+# custom profile: biome with a biome.json in the repo root, ruff with a ruff.toml there.
+rest=$(grep -vE '^(frontend|backend)/' <<<"$staged" || true)
+if [ -f biome.json ]; then
+  js=$(grep -E '\.(ts|tsx|js|jsx|mjs|cjs|json|css)$' <<<"$rest" || true)
+  [ -z "$js" ] || xargs nix run --quiet .#biome -- check --no-errors-on-unmatched <<<"$js"
+fi
+if [ -f ruff.toml ]; then
+  py=$(grep -E '\.py$' <<<"$rest" || true)
+  [ -z "$py" ] || { xargs nix run --quiet .#ruff -- check <<<"$py" && xargs nix run --quiet .#ruff -- format --check <<<"$py"; }
+fi

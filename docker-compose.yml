@@ -1,5 +1,7 @@
 # The relay in a home lab behind Traefik and Authelia (the stack of papercuts.lab.t7d.dev).
-# For your own lab, change the host names, the origins, the repos and the uid.
+# The image comes from Nix (`nix run .#load`); lab-ctl builds it, loads it and tags it
+# papercuts:latest before `up`. There is no Dockerfile. For your own lab, change the host names,
+# the origins, the repos and the uid.
 #
 # Credential: the gh login of the host user, mounted read-only. The container runs as that user,
 # because gh keeps hosts.yml with mode 600. For a narrow token, set PAPERCUTS_CREDENTIAL=file and
@@ -10,13 +12,16 @@
 # lab repos only). Without a gateway, drop PAPERCUTS_GITHUB_HOST, NODE_EXTRA_CA_CERTS, the CA mount
 # and extra_hosts. GitHub refuses picture uploads from App tokens, so the relay keeps pictures in
 # the shots volume and links them.
+name: papercuts
 services:
   papercuts:
-    build: .
+    image: papercuts:latest
     restart: unless-stopped
     user: "${PAPERCUTS_UID:-1000}:${PAPERCUTS_GID:-100}"   # the lab VM user (developer: uid 1000, group users)
     read_only: true
     tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     mem_limit: 256m   # one report with an 8 MB picture needs about 55 MB while it is parsed
     logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
     networks: [proxy]
@@ -29,10 +34,12 @@ services:
       PAPERCUTS_PUBLIC_URL: "https://papercuts.lab.t7d.dev"
       PAPERCUTS_GITHUB_HOST: gh.gate
       NODE_EXTRA_CA_CERTS: /gate-ca.crt
+      # HOME=/tmp, PAPERCUTS_SHOTS_DIR=/data/shots, PORT=8000 and APP_VERSION come from the image.
     extra_hosts: ["gh.gate:192.168.101.20"]
     volumes:
       - ${HOME}/.config/gh:/gh:ro
       - /etc/gate/ca.crt:/gate-ca.crt:ro
+      # Pictures. The volume root must be writable by the uid above (the old image made it 777).
       - shots:/data/shots
     labels:
       - traefik.enable=true
@@ -45,6 +52,7 @@ services:
       - homepage.name=Papercuts
       - homepage.href=https://papercuts.lab.t7d.dev/status
       - homepage.description=Feedback from people and agents, as GitHub issues
+      - homepage.icon=https://papercuts.lab.t7d.dev/icon.svg
 volumes:
   shots:
 networks:

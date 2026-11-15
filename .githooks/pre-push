@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Owned by the app template. Everything CI would check, before anything reaches GitHub:
+# no known vulnerability in the locks (accepted ones: osv-scanner.toml), then lint, types,
+# tests and the image build (`nix flake check`). `git push --no-verify` skips it.
+set -euo pipefail
+# Nothing to check when the push only deletes branches (the local sha is all zeros).
+need=0
+while read -r _ local_sha _ _; do
+  [[ $local_sha =~ ^0+$ ]] || need=1
+done
+[ "$need" = 1 ] || exit 0
+echo "pre-push: dep-guard --all"
+nix run --quiet .#dep-guard -- --all
+echo "pre-push: nix flake check"
+nix flake check --quiet

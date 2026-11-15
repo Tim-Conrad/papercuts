@@ -928,7 +928,7 @@
       for (const m of sheet.marks) {
         if (m.type === 'pen') {
           ctx.beginPath();
-          m.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+          m.points.forEach(([x, y], i) => { if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
           ctx.stroke();
         } else {
           nr++;
@@ -1052,7 +1052,7 @@
         const c = document.createElement('canvas');
         c.width = video.videoWidth; c.height = video.videoHeight;
         c.getContext('2d').drawImage(video, 0, 0);
-        stream.getTracks().forEach((tr) => tr.stop());
+        for (const tr of stream.getTracks()) tr.stop();
         els.tab.hidden = false;
         openSheet(c);
       } catch (e) {

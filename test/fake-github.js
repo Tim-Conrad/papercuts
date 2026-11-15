@@ -23,7 +23,7 @@ export async function fakeGithub({ token = 'test-token-123' } = {}) {
     if (req.headers.authorization !== `Bearer ${token}`) return send(401, { message: 'Bad credentials' });
     if (url.pathname === '/user') return send(200, { login: 'tester' });
     // A picture behind the login, like github.com/user-attachments/assets/<id> of a private repo.
-    let a = url.pathname.match(/^\/assets\/(\d+)$/);
+    const a = url.pathname.match(/^\/assets\/(\d+)$/);
     if (a && req.method === 'GET') {
       const up = state.uploads[Number(a[1]) - 1];
       if (!up) return send(404, { message: 'Not Found' });

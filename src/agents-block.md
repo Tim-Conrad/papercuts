@@ -1,0 +1,23 @@
+# Papercuts block for AGENTS.md
+
+`papercuts init` writes the block below between `<!-- papercuts:begin -->` and `<!-- papercuts:end -->`. You can also copy it into the `AGENTS.md` or `CLAUDE.md` of a project. It tells agents when and how to report friction.
+
+```markdown
+## Papercuts
+
+Report friction with papercuts. Each papercut is a GitHub issue with the label `papercut`. If `.github/papercuts.json` sets `"store": "local"`, each papercut is a row in `.papercuts/papercuts.db` (gitignored) instead. The commands are the same.
+
+- If a tool, a path, a rule or a page costs you time, run `papercuts add <kind> "<one sentence>" --where "<tool, file or page>"`. Kinds: bug, ux, copy, tool, rule, path, idea, other. Do not stop your task for it.
+- At the start of a session, read the open papercuts that the session hook shows. If there is no hook, run `papercuts`.
+- To fix one, run `papercuts view <id>`, fix it with the rules of this repo, then run `papercuts done <id> --fix "<what changed, and the commit>"`.
+- If a papercut has a picture, run `papercuts shot <id>` and look at it. If it has a place, run `papercuts replay <id>` to see the page as the reporter saw it.
+- If a papercut needs a decision from the owner, do not close it. Write two or three options with `papercuts comment <id> "<options>"`.
+- Never put a token, a password or a key into a papercut.
+
+### Integration
+
+- `.github/papercuts.json` defines what a papercut of this repo contains: kinds, fields for agents, quick phrases, labels, assignees. After a change, run `papercuts config --file .github/papercuts.json --check`.
+- The page loads the widget only when `PAPERCUTS_URL` is set. Keep it out of every published copy, and keep the test that checks this.
+- Page hooks: `window.papercutsContext(el)` adds fields, `window.papercutsHidden()` hides the tab, `window.papercutsReplay()` records clicks for replay, `papercuts.open({ text, marks })` opens the panel with a draft.
+- The full guide: https://github.com/Tim-Conrad/papercuts#integrate-papercuts-into-an-app
+```

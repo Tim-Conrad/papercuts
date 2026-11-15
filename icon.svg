@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" data-bg="#e4572e">
+  <!-- A sheet of paper with a small cut in its edge: papercuts. -->
+  <rect width="512" height="512" rx="96" fill="#e4572e"/>
+  <path d="M136 92h184l60 60v268H136V292l64-36-64-36z" fill="#ffffff"/>
+  <path d="M320 92v60h60z" fill="#f6c9b8"/>
+  <path d="M200 256l52-30" stroke="#8c2410" stroke-width="12" stroke-linecap="round"/>
+  <rect x="236" y="168" width="104" height="22" rx="11" fill="#f6c9b8"/>
+  <rect x="270" y="245" width="70" height="22" rx="11" fill="#f6c9b8"/>
+  <rect x="236" y="322" width="104" height="22" rx="11" fill="#f6c9b8"/>
+  <rect x="176" y="370" width="164" height="22" rx="11" fill="#f6c9b8"/>
+</svg>

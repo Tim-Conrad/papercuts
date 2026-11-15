@@ -1,7 +1,18 @@
-.superpowers/
 node_modules/
-secrets/
-
-# wt previews: throwaway data
-.preview/
+dist/
+*.tsbuildinfo
 .venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.direnv/
+result
+result-*
+/data/
+/secrets/
+/.preview/
+*.db
+*.db-wal
+*.db-shm
+.env
