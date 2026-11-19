@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 300" role="img" aria-labelledby="loop-t loop-d">
+  <title id="loop-t">From a report to a fix</title>
+  <desc id="loop-d">Six steps in a loop. A person or an agent reports. The papercut is open. The hook shows it at the start of the next agent session. The agent fixes it and closes it with a fix note. The panel on the page shows the fix note for 14 days, so the reporter sees it.</desc>
+  <style data-standalone="">
+    /* Only for a look outside t7d.dev (GitHub, an editor). The site drops this block and draws the same classes with its own styles. */
+    .paper { fill: #fff; }
+    text { font: 500 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #111; letter-spacing: .02em; }
+    .t-s { font-size: 11px; fill: #5c5c5c; }
+    .t-h { font: 600 15px/1 "Barlow Condensed", "Arial Narrow", sans-serif; letter-spacing: .03em; text-transform: uppercase; }
+    .t-m { fill: #5c5c5c; }
+    .t-inv { fill: #fff; }
+    .ln { fill: none; stroke: #111; stroke-width: 1.5; }
+    .ln-s { fill: none; stroke: #5c5c5c; stroke-width: 1; stroke-dasharray: 4 4; }
+    .bx { fill: #fff; stroke: #111; stroke-width: 1.5; }
+    .bx-s { fill: #f4f4f2; stroke: #111; stroke-width: 1; }
+    .bx-i { fill: #111; stroke: #111; stroke-width: 1.5; }
+    .bx-d { fill: none; stroke: #111; stroke-width: 1; stroke-dasharray: 5 4; }
+    .arr { fill: #111; }
+    @media (prefers-color-scheme: dark) {
+      .paper { fill: #0e0e0e; }
+      text { fill: #f2f2f2; }
+      .t-s, .t-m { fill: #a3a3a3; }
+      .t-inv { fill: #0e0e0e; }
+      .ln, .bx-d { stroke: #f2f2f2; }
+      .ln-s { stroke: #a3a3a3; }
+      .bx { fill: #0e0e0e; stroke: #f2f2f2; }
+      .bx-s { fill: #1a1a1a; stroke: #f2f2f2; }
+      .bx-i { fill: #f2f2f2; stroke: #f2f2f2; }
+      .arr { fill: #f2f2f2; }
+    }
+  </style>
+  <rect class="paper" data-standalone="" width="680" height="300"/>
+  <rect class="bx" x="20" y="40" width="180" height="70"/>
+  <text x="110.0" y="72.0" class="t-h" text-anchor="middle">1 · Report</text>
+  <text x="110.0" y="90.0" class="t-s" text-anchor="middle">a person or an agent</text>
+  <rect class="bx" x="250" y="40" width="180" height="70"/>
+  <text x="340.0" y="72.0" class="t-h" text-anchor="middle">2 · Open papercut</text>
+  <text x="340.0" y="90.0" class="t-s" text-anchor="middle">an issue, or a row</text>
+  <rect class="bx" x="480" y="40" width="180" height="70"/>
+  <text x="570.0" y="72.0" class="t-h" text-anchor="middle">3 · Session start</text>
+  <text x="570.0" y="90.0" class="t-s" text-anchor="middle">the hook shows it</text>
+  <rect class="bx" x="480" y="190" width="180" height="70"/>
+  <text x="570.0" y="222.0" class="t-h" text-anchor="middle">4 · Fix</text>
+  <text x="570.0" y="240.0" class="t-s" text-anchor="middle">papercuts view 12</text>
+  <rect class="bx" x="250" y="190" width="180" height="70"/>
+  <text x="340.0" y="222.0" class="t-h" text-anchor="middle">5 · Done</text>
+  <text x="340.0" y="240.0" class="t-s" text-anchor="middle">papercuts done 12 --fix</text>
+  <rect class="bx" x="20" y="190" width="180" height="70"/>
+  <text x="110.0" y="222.0" class="t-h" text-anchor="middle">6 · The panel</text>
+  <text x="110.0" y="240.0" class="t-s" text-anchor="middle">shows the fix, 14 days</text>
+  <polyline class="ln" points="200,75 242.0,75.0"/>
+  <polygon class="arr" points="250,75 242.0,80.0 242.0,70.0"/>
+  <polyline class="ln" points="430,75 472.0,75.0"/>
+  <polygon class="arr" points="480,75 472.0,80.0 472.0,70.0"/>
+  <polyline class="ln" points="570,110 570.0,182.0"/>
+  <polygon class="arr" points="570,190 565.0,182.0 575.0,182.0"/>
+  <polyline class="ln" points="480,225 438.0,225.0"/>
+  <polygon class="arr" points="430,225 438.0,220.0 438.0,230.0"/>
+  <polyline class="ln" points="250,225 208.0,225.0"/>
+  <polygon class="arr" points="200,225 208.0,220.0 208.0,230.0"/>
+  <polyline class="ln-s" points="110,190 110.0,118.0"/>
+  <polygon class="arr" points="110,110 115.0,118.0 105.0,118.0"/>
+  <text x="122" y="154" class="t-s">the reporter sees it</text>
+  <text x="558" y="154" class="t-s" text-anchor="end">the next session</text>
+</svg>

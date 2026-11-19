@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 270" role="img" aria-labelledby="where-t where-d">
+  <title id="where-t">The widget loads only where a relay exists</title>
+  <desc id="where-d">Two copies of the same site. On the dev or lab copy the variable PAPERCUTS_URL is set, the server adds the script tag, and the page shows the tab. On the published copy the variable is not set, so the page has no tag and no tab, and no visitor learns the relay URL.</desc>
+  <style data-standalone="">
+    /* Only for a look outside t7d.dev (GitHub, an editor). The site drops this block and draws the same classes with its own styles. */
+    .paper { fill: #fff; }
+    text { font: 500 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #111; letter-spacing: .02em; }
+    .t-s { font-size: 11px; fill: #5c5c5c; }
+    .t-h { font: 600 15px/1 "Barlow Condensed", "Arial Narrow", sans-serif; letter-spacing: .03em; text-transform: uppercase; }
+    .t-m { fill: #5c5c5c; }
+    .t-inv { fill: #fff; }
+    .ln { fill: none; stroke: #111; stroke-width: 1.5; }
+    .ln-s { fill: none; stroke: #5c5c5c; stroke-width: 1; stroke-dasharray: 4 4; }
+    .bx { fill: #fff; stroke: #111; stroke-width: 1.5; }
+    .bx-s { fill: #f4f4f2; stroke: #111; stroke-width: 1; }
+    .bx-i { fill: #111; stroke: #111; stroke-width: 1.5; }
+    .bx-d { fill: none; stroke: #111; stroke-width: 1; stroke-dasharray: 5 4; }
+    .arr { fill: #111; }
+    @media (prefers-color-scheme: dark) {
+      .paper { fill: #0e0e0e; }
+      text { fill: #f2f2f2; }
+      .t-s, .t-m { fill: #a3a3a3; }
+      .t-inv { fill: #0e0e0e; }
+      .ln, .bx-d { stroke: #f2f2f2; }
+      .ln-s { stroke: #a3a3a3; }
+      .bx { fill: #0e0e0e; stroke: #f2f2f2; }
+      .bx-s { fill: #1a1a1a; stroke: #f2f2f2; }
+      .bx-i { fill: #f2f2f2; stroke: #f2f2f2; }
+      .arr { fill: #f2f2f2; }
+    }
+  </style>
+  <rect class="paper" data-standalone="" width="680" height="270"/>
+  <rect class="bx" x="20" y="25" width="200" height="90"/>
+  <text x="120.0" y="67.0" class="t-h" text-anchor="middle">Dev or lab copy</text>
+  <text x="120.0" y="85.0" class="t-s" text-anchor="middle">PAPERCUTS_URL is set</text>
+  <polyline class="ln" points="220,70 272.0,70.0"/>
+  <polygon class="arr" points="280,70 272.0,75.0 272.0,65.0"/>
+  <rect class="bx" x="280" y="25" width="150" height="90"/>
+  <rect class="bx-s" x="296" y="43" width="80" height="8"/>
+  <rect class="bx-s" x="296" y="61" width="100" height="8"/>
+  <rect class="bx-s" x="296" y="79" width="60" height="8"/>
+  <rect class="bx-i" x="416" y="50" width="14" height="40"/>
+  <text x="450" y="65">the server adds the tag</text>
+  <text x="450" y="85" class="t-s">the page shows the tab</text>
+  <rect class="bx" x="20" y="150" width="200" height="90"/>
+  <text x="120.0" y="192.0" class="t-h" text-anchor="middle">Published copy</text>
+  <text x="120.0" y="210.0" class="t-s" text-anchor="middle">PAPERCUTS_URL is not set</text>
+  <polyline class="ln" points="220,195 272.0,195.0"/>
+  <polygon class="arr" points="280,195 272.0,200.0 272.0,190.0"/>
+  <rect class="bx" x="280" y="150" width="150" height="90"/>
+  <rect class="bx-s" x="296" y="168" width="80" height="8"/>
+  <rect class="bx-s" x="296" y="186" width="100" height="8"/>
+  <rect class="bx-s" x="296" y="204" width="60" height="8"/>
+  <text x="450" y="190">no tag, no tab</text>
+  <text x="450" y="210" class="t-s">no relay URL for visitors</text>
+</svg>

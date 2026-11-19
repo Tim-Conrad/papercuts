@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 250" role="img" aria-labelledby="repeats-t repeats-d">
+  <title id="repeats-t">What happens to a repeat</title>
+  <desc id="repeats-d">Three cases. A report with an ID that exists already returns the first issue. A report from an agent with the same kind, place and sentence as an open papercut adds a plus one comment to it. A report from a person always opens a new issue.</desc>
+  <style data-standalone="">
+    /* Only for a look outside t7d.dev (GitHub, an editor). The site drops this block and draws the same classes with its own styles. */
+    .paper { fill: #fff; }
+    text { font: 500 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #111; letter-spacing: .02em; }
+    .t-s { font-size: 11px; fill: #5c5c5c; }
+    .t-h { font: 600 15px/1 "Barlow Condensed", "Arial Narrow", sans-serif; letter-spacing: .03em; text-transform: uppercase; }
+    .t-m { fill: #5c5c5c; }
+    .t-inv { fill: #fff; }
+    .ln { fill: none; stroke: #111; stroke-width: 1.5; }
+    .ln-s { fill: none; stroke: #5c5c5c; stroke-width: 1; stroke-dasharray: 4 4; }
+    .bx { fill: #fff; stroke: #111; stroke-width: 1.5; }
+    .bx-s { fill: #f4f4f2; stroke: #111; stroke-width: 1; }
+    .bx-i { fill: #111; stroke: #111; stroke-width: 1.5; }
+    .bx-d { fill: none; stroke: #111; stroke-width: 1; stroke-dasharray: 5 4; }
+    .arr { fill: #111; }
+    @media (prefers-color-scheme: dark) {
+      .paper { fill: #0e0e0e; }
+      text { fill: #f2f2f2; }
+      .t-s, .t-m { fill: #a3a3a3; }
+      .t-inv { fill: #0e0e0e; }
+      .ln, .bx-d { stroke: #f2f2f2; }
+      .ln-s { stroke: #a3a3a3; }
+      .bx { fill: #0e0e0e; stroke: #f2f2f2; }
+      .bx-s { fill: #1a1a1a; stroke: #f2f2f2; }
+      .bx-i { fill: #f2f2f2; stroke: #f2f2f2; }
+      .arr { fill: #f2f2f2; }
+    }
+  </style>
+  <rect class="paper" data-standalone="" width="680" height="250"/>
+  <rect class="bx" x="20" y="20" width="270" height="60"/>
+  <text x="155.0" y="47.0" class="t-h" text-anchor="middle">A retry</text>
+  <text x="155.0" y="65.0" class="t-s" text-anchor="middle">the same report ID</text>
+  <polyline class="ln" points="290,50 382.0,50.0"/>
+  <polygon class="arr" points="390,50 382.0,55.0 382.0,45.0"/>
+  <rect class="bx" x="390" y="20" width="270" height="60"/>
+  <text x="525.0" y="47.0" class="t-h" text-anchor="middle">The first issue</text>
+  <text x="525.0" y="65.0" class="t-s" text-anchor="middle">no second one</text>
+  <rect class="bx" x="20" y="95" width="270" height="60"/>
+  <text x="155.0" y="122.0" class="t-h" text-anchor="middle">An agent, again</text>
+  <text x="155.0" y="140.0" class="t-s" text-anchor="middle">same kind, place, sentence</text>
+  <polyline class="ln" points="290,125 382.0,125.0"/>
+  <polygon class="arr" points="390,125 382.0,130.0 382.0,120.0"/>
+  <rect class="bx" x="390" y="95" width="270" height="60"/>
+  <text x="525.0" y="122.0" class="t-h" text-anchor="middle">+1 comment</text>
+  <text x="525.0" y="140.0" class="t-s" text-anchor="middle">on the open issue</text>
+  <rect class="bx" x="20" y="170" width="270" height="60"/>
+  <text x="155.0" y="197.0" class="t-h" text-anchor="middle">A person</text>
+  <text x="155.0" y="215.0" class="t-s" text-anchor="middle">any report</text>
+  <polyline class="ln" points="290,200 382.0,200.0"/>
+  <polygon class="arr" points="390,200 382.0,205.0 382.0,195.0"/>
+  <rect class="bx-i" x="390" y="170" width="270" height="60"/>
+  <text x="525.0" y="197.0" class="t-h t-inv" text-anchor="middle">A new issue</text>
+  <text x="525.0" y="215.0" class="t-s t-inv" text-anchor="middle">always</text>
+</svg>
