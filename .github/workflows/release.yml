@@ -1,0 +1,35 @@
+# Drafts a GitHub release of the version in package.json. Start it by hand (Actions, "release", Run workflow).
+# It creates the tag on main and a draft release with the notes you give. The owner reviews the draft and
+# presses Publish: only a published release counts as the latest one (t7d.dev reads SHOWME.md from it).
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: Release notes (Markdown, one line per change)
+        required: true
+permissions:
+  contents: write
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "error: $tag exists already. Raise the version in package.json first."; exit 1
+          fi
+          printf '%s\n' "$NOTES" > notes.md
+          gh release create "$tag" --draft --target "$(git rev-parse HEAD)" --title "$tag" --notes-file notes.md
+          echo "Drafted $tag at $(git rev-parse --short HEAD). Review and publish it under Releases."
