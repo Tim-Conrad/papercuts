@@ -119,7 +119,7 @@ object Papercuts {
         val events = recentEvents()
         state.collect { s ->
             val context = ReportPayload.context(s, events, config.base())
-            val finish = { shot: ByteArray? -> main.post { done(Draft(where = where, context = context, attachments = s.attachments, shot = shot)) } }
+            val finish: (ByteArray?) -> Unit = { shot -> main.post { done(Draft(where = where, context = context, attachments = s.attachments, shot = shot)) } }
             if (activity == null) finish(null) else screenshot(activity, hide, finish)
         }
     }
