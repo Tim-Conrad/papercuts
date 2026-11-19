@@ -2,6 +2,8 @@
 
 Papercuts is one place where you and your agents report friction. Each papercut becomes a GitHub issue in the repo of the project, or a row in a gitignored SQLite file of the repo (the local store).
 
+New here? [SHOWME.md](SHOWME.md) shows how it works and why, with pictures, in about five minutes. This README is the reference.
+
 ## Why
 
 Small problems get lost. A button overlaps on the phone. A tool prints output that an agent cannot use. A rule in `AGENTS.md` points to a file that moved. Each one costs a few minutes, again and again.

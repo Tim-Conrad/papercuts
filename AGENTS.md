@@ -92,3 +92,28 @@ Node 22.13+ (the image has Node 24), no npm dependencies and no lock file: keep 
 - `skills/papercuts/SKILL.md` is generated from the CLI help: after a change to the help, run
   `node bin/papercuts.js skill` (`nix flake check` runs `skill --check`).
 - `/healthz` and `/status` show the version (`APP_VERSION` of the image, else `package.json`).
+
+### SHOWME.md
+
+`SHOWME.md` is the visual guide: how papercuts works and why, with one picture per idea
+(`docs/showme/*.svg`). https://t7d.dev/tools/papercuts/ shows it, with the pictures, from the
+latest release. So it is the public face of the tool, and it must stay true.
+
+- Update `SHOWME.md` in the same PR as a change to what it explains: the parts (widget, JS API,
+  CLI, relay), what a report carries, the kinds, the stores, the path of a report and where the
+  credential lives, the loop from report to fix (the hook, `done --fix`, the 14 days in the
+  panel), the rule for repeats, `PAPERCUTS_URL`, and the commands under "Try it". If a change
+  touches none of these, leave it alone.
+- `SHOWME.md` explains how and why. Options, flags, routes and tables belong in `README.md`;
+  link to the README heading instead of copying. It names no version number.
+- A picture is plain SVG, 680 wide, drawn only with the classes in its `<style>` block (the
+  diagram classes of t7d.dev: `bx`, `bx-s`, `bx-i`, `bx-d`, `ln`, `ln-s`, `arr`, `t-h`, `t-s`,
+  `t-m`, `t-inv`), black and white, with `<title>` and `<desc>`. No colours, no `style`
+  attributes. Keep the `<style>` block the same in every picture. In SHOWME.md, write
+  `![alt text](docs/showme/<name>.svg "caption")`. After a change, look at the picture in light
+  and dark.
+- `test/showme.test.js` (part of `npm test`) fails if a picture is missing or unused, if a link
+  into the README has no heading, if a kind is missing, or if a picture uses something the site
+  cannot draw. Rename a README heading: fix the link in `SHOWME.md` too.
+- The site changes only with a release. After a merge that changes `SHOWME.md`, tell the owner
+  that the tool page shows it after the next release and the next deploy of t7d.dev.

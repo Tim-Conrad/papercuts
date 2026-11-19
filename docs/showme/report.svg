@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 350" role="img" aria-labelledby="report-t report-d">
+  <title id="report-t">What one report carries</title>
+  <desc id="report-d">On the left a page with the Papercut tab at its edge and one marked element. On the right the papercut: the sentence, the picture and the marks, the context that the widget adds by itself, and three labels.</desc>
+  <style data-standalone="">
+    /* Only for a look outside t7d.dev (GitHub, an editor). The site drops this block and draws the same classes with its own styles. */
+    .paper { fill: #fff; }
+    text { font: 500 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #111; letter-spacing: .02em; }
+    .t-s { font-size: 11px; fill: #5c5c5c; }
+    .t-h { font: 600 15px/1 "Barlow Condensed", "Arial Narrow", sans-serif; letter-spacing: .03em; text-transform: uppercase; }
+    .t-m { fill: #5c5c5c; }
+    .t-inv { fill: #fff; }
+    .ln { fill: none; stroke: #111; stroke-width: 1.5; }
+    .ln-s { fill: none; stroke: #5c5c5c; stroke-width: 1; stroke-dasharray: 4 4; }
+    .bx { fill: #fff; stroke: #111; stroke-width: 1.5; }
+    .bx-s { fill: #f4f4f2; stroke: #111; stroke-width: 1; }
+    .bx-i { fill: #111; stroke: #111; stroke-width: 1.5; }
+    .bx-d { fill: none; stroke: #111; stroke-width: 1; stroke-dasharray: 5 4; }
+    .arr { fill: #111; }
+    @media (prefers-color-scheme: dark) {
+      .paper { fill: #0e0e0e; }
+      text { fill: #f2f2f2; }
+      .t-s, .t-m { fill: #a3a3a3; }
+      .t-inv { fill: #0e0e0e; }
+      .ln, .bx-d { stroke: #f2f2f2; }
+      .ln-s { stroke: #a3a3a3; }
+      .bx { fill: #0e0e0e; stroke: #f2f2f2; }
+      .bx-s { fill: #1a1a1a; stroke: #f2f2f2; }
+      .bx-i { fill: #f2f2f2; stroke: #f2f2f2; }
+      .arr { fill: #f2f2f2; }
+    }
+  </style>
+  <rect class="paper" data-standalone="" width="680" height="350"/>
+  <rect class="bx" x="20" y="30" width="240" height="270"/>
+  <text x="20" y="322" class="t-s">a page of a local site</text>
+  <rect class="bx-s" x="40" y="56" width="150" height="10"/>
+  <rect class="bx-s" x="40" y="80" width="180" height="10"/>
+  <rect class="bx-s" x="40" y="104" width="120" height="10"/>
+  <rect class="bx-s" x="40" y="140" width="140" height="56"/>
+  <rect class="bx-d" x="34" y="134" width="152" height="68"/>
+  <rect class="bx-i" x="174" y="126" width="20" height="20"/>
+  <text x="184" y="141" class="t-inv" text-anchor="middle">1</text>
+  <text x="40" y="226" class="t-s">marked element</text>
+  <rect class="bx-i" x="240" y="110" width="20" height="90"/>
+  <text x="232" y="250" class="t-s" text-anchor="end">the tab</text>
+  <polyline class="ln-s" points="236,238 250,204"/>
+  <polyline class="ln" points="260,155 322.0,155.0"/>
+  <polygon class="arr" points="330,155 322.0,160.0 322.0,150.0"/>
+  <rect class="bx" x="330" y="30" width="330" height="270"/>
+  <rect class="bx-i" x="330" y="30" width="330" height="40"/>
+  <text x="346" y="55" class="t-inv">papercut: The save button is under…</text>
+  <text x="346" y="96" class="t-s">you write or say</text>
+  <text x="346" y="114">one sentence</text>
+  <text x="346" y="138" class="t-s">you can add</text>
+  <text x="346" y="156">a picture, numbered marks</text>
+  <text x="346" y="180" class="t-s">added by itself</text>
+  <text x="346" y="198">the element you touched last</text>
+  <text x="346" y="222">URL, place, viewport</text>
+  <text x="346" y="246">selected text, console errors</text>
+  <polyline class="ln" points="330,258 660,258"/>
+  <rect class="bx-s" x="346" y="268" width="75" height="22"/>
+  <text x="354" y="283" class="t-s">papercut</text>
+  <rect class="bx-s" x="429" y="268" width="90" height="22"/>
+  <text x="437" y="283" class="t-s">from:human</text>
+  <rect class="bx-s" x="527" y="268" width="90" height="22"/>
+  <text x="535" y="283" class="t-s">kind:other</text>
+  <text x="660" y="322" class="t-s" text-anchor="end">one papercut</text>
+</svg>
