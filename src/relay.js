@@ -151,10 +151,10 @@ export function createRelay(config, { client }) {
       const norm = normalizeReport(payload?.report, isApp ? 'human' : payload?.from ?? 'human');
       if (!norm.ok) return send(400, { ...norm, retry: false });
       if (app && !repoAllowed(norm.report.repo, app.repos)) {
-        return send(403, { ok: false, retry: false, error: `the token of ${app.label} may not report to ${norm.report.repo}`, help: 'add the repo to its line in PAPERCUTS_APP_TOKENS_FILE' });
+        return send(403, { ok: false, retry: true, error: `the token of ${app.label} may not report to ${norm.report.repo}`, help: 'add the repo to its line in PAPERCUTS_APP_TOKENS_FILE; the app keeps the report' });
       }
       if (!repoAllowed(norm.report.repo, config.repos)) {
-        return send(403, { ok: false, retry: false, error: `repo ${norm.report.repo} not allowed`, help: 'add the repo to PAPERCUTS_REPOS' });
+        return send(403, { ok: false, retry: isApp, error: `repo ${norm.report.repo} not allowed`, help: 'add the repo to PAPERCUTS_REPOS' });
       }
       let repoCfg;
       try { repoCfg = (await repoConfig(norm.report.repo)).config; } catch (e) {
@@ -164,7 +164,13 @@ export function createRelay(config, { client }) {
       if (!fields.ok) return send(400, { ...fields, retry: false });
       norm.report.fields = fields.fields;
       const filed = await fileOnce(norm.report, repoCfg);
-      const result = filed.url && !/^https?:\/\//.test(filed.url) ? { ...filed, url: '' } : filed;
+      let result = filed.url && !/^https?:\/\//.test(filed.url) ? { ...filed, url: '' } : filed;
+      // An app keeps a report the relay cannot file because of its own setup (the GitHub credential
+      // cannot see the repo, or has no right): that heals once the setup is fixed. The web widget
+      // keeps the old answer (a wrong repo or token never heals by itself).
+      if (isApp && !result.ok && [401, 403, 404].includes(result.status)) {
+        result = { ...result, retry: true, help: `${result.help}; the app keeps the report and sends it again later` };
+      }
       if (result.ok) listCache.delete(norm.report.repo);
       return send(result.ok ? 200 : result.retry ? 502 : 422, result);
     } catch (e) {

@@ -69,6 +69,6 @@ export async function fileReport(report, { client, target, shots, publicUrl, con
     if (!(e instanceof GithubError)) throw e;
     // Retry only what can heal by itself: no answer, a GitHub outage, a rate limit. A wrong repo or token never heals.
     const retry = e.status === 0 || e.status >= 500 || e.status === 429 || /rate limit/i.test(e.message);
-    return { ok: false, retry, error: `${e.source || 'github'}: ${e.status} ${e.message}`, help: HELP[e.status] || 'try again later, or run `papercuts doctor`' };
+    return { ok: false, retry, status: e.status, error: `${e.source || 'github'}: ${e.status} ${e.message}`, help: HELP[e.status] || 'try again later, or run `papercuts doctor`' };
   }
 }

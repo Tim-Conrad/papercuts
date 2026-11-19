@@ -127,6 +127,8 @@ claude-auto    <random token>                          Tim-Conrad/claude-auto
 
 A missing file means that no app may report. A report from an app is always `from: human`: a person filed it on purpose. Apps never file papercuts by themselves; they only attach their state to a report that a person sends.
 
+A report the relay cannot file because of its own setup answers `retry: true`, so the app keeps it and sends it again later: the token may not report to that repo, the repo is not in `PAPERCUTS_REPOS`, or GitHub answers 401, 403 or 404 (the relay's credential cannot see the repo). A bad report (wrong kind, empty text, too large) stays final. `/report` keeps `retry: false` for these, as before.
+
 In the lab, Traefik routes only `POST /app-report` past Authelia (a second router in `docker-compose.yml`); the token is the gate there.
 
 A report may carry up to 3 text **attachments**: `"attachments": [{ "name": "dom.html", "text": "..." }]`, each at most 60,000 characters, the name `[a-z0-9][a-z0-9._-]*`. Each becomes one comment of the issue, in a collapsed block with the marker `<!-- papercut-attachment: <name> -->`. GitHub holds them, so an agent reads them where the relay is out of reach: `papercuts view` lists the names, `papercuts attachment <id> [<name>]` saves one. Attachments work with `/report` too. The app must remove private content before it sends anything: papercuts only redacts secrets.

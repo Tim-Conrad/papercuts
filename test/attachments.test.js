@@ -82,6 +82,27 @@ test('/app-report needs a valid token and stays inside its repos', async () => {
   assert.equal(issues().length, 0);
 });
 
+test('/app-report: a setup problem keeps the report on the phone (retry true)', async () => {
+  const other = await appPost(report({ repo: 'Tim-Conrad/shop' }));
+  assert.equal(other.status, 403);
+  assert.equal((await other.json()).retry, true);
+  gh.state.fail = 404;
+  const res = await appPost(report());
+  const body = await res.json();
+  assert.equal(res.status, 502, JSON.stringify(body));
+  assert.equal(body.retry, true);
+  assert.match(body.error, /404/);
+  gh.state.fail = 0;
+  assert.equal((await appPost(report())).status, 200);
+  assert.equal(issues().length, 1);
+});
+
+test('/app-report: a bad report is still final (retry false)', async () => {
+  const res = await appPost(report({ kind: 'nope', text: '' }));
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).retry, false);
+});
+
 test('/app-report ignores a claimed agent source', async () => {
   const res = await appPost({ from: 'agent', ...report() });
   assert.equal(res.status, 200);
