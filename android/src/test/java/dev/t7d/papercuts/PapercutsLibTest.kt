@@ -84,4 +84,37 @@ class PapercutsLibTest {
         assertEquals(1, o.pending().size)
         assertEquals("no token", o.lastError)
     }
+
+    @Test fun shotAndPinsGoWhenKeptEvenWithoutState() {
+        val d = Draft(id = "abc", context = JSONObject().put("phase", "READY"), shot = byteArrayOf(1))
+        val r = ReportPayload.build(d, "Tim-Conrad/x", "t", withState = false, shot = byteArrayOf(7), pins = listOf("Menü", "")).getJSONObject("report")
+        assertFalse(r.has("context"))
+        assertTrue(r.getString("shot").startsWith("data:image/png;base64,"))
+        assertEquals(2, r.getJSONArray("pins").length())
+        assertEquals(1, r.getJSONArray("pins").getJSONObject(0).getInt("nr"))
+        assertEquals("Menü", r.getJSONArray("pins").getJSONObject(0).getString("text"))
+        // removed in the sheet: no picture and no pins
+        val none = ReportPayload.build(d, "Tim-Conrad/x", "t", withState = true, shot = null, pins = listOf("x")).getJSONObject("report")
+        assertFalse(none.has("shot") || none.has("pins"))
+    }
+
+    @Test fun sentReadsTheRelayAnswer() {
+        val ok = Sent.of(200, """{"ok":true,"issue":42,"url":"https://github.com/o/r/issues/42"}""")
+        assertEquals(SendOutcome.DONE, ok.outcome)
+        assertEquals(42, ok.issue)
+        assertEquals("https://github.com/o/r/issues/42", ok.url)
+        val bad = Sent.of(400, """{"ok":false,"retry":false,"error":"text is empty","help":"write one sentence"}""")
+        assertEquals(SendOutcome.DROP, bad.outcome)
+        assertEquals("text is empty", bad.error)
+        assertEquals("write one sentence", bad.help)
+        assertNull(Sent.of(200, """{"ok":true,"issue":1,"url":"javascript:x"}""").url)
+        assertEquals(SendOutcome.KEEP, Sent.of(0, null).outcome)
+    }
+
+    @Test fun outboxSendWithoutTokenAnswersNothing() {
+        val o = Outbox(tmp())
+        o.add("r1", JSONObject().put("x", 1))
+        assertTrue(o.send("https://relay.invalid", null).isEmpty())
+        assertEquals("no token", o.lastError)
+    }
 }
