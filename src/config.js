@@ -44,6 +44,16 @@ export function repoAllowed(repo, repos) {
   });
 }
 
+// Tokens of native apps, which have no origin and no login session: one line `<label> <token> <repo>[,<repo>]`.
+// Read on every request, so a new token needs no restart. A missing or unreadable file means: no app may report.
+export function readAppTokens(path) {
+  if (!path) return [];
+  let text;
+  try { text = readFileSync(path, 'utf8'); } catch { return []; }
+  return text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')).map((l) => l.split(/\s+/))
+    .filter((p) => p.length === 3 && p[1].length >= 32).map(([label, token, repos]) => ({ label, token, repos: list(repos) }));
+}
+
 // With the local store, the relay runs next to a dev server: localhost origins and any repo name by default.
 export function loadConfig(env = process.env, file = {}, { store = 'github' } = {}) {
   const local = store === 'local';
@@ -72,5 +82,6 @@ export function loadConfig(env = process.env, file = {}, { store = 'github' } = 
     configCacheMs: Number(env.PAPERCUTS_CONFIG_CACHE_MS ?? 300000),
     shotsDir: env.PAPERCUTS_SHOTS_DIR || file.shotsDir || 'shots',
     publicUrl: env.PAPERCUTS_PUBLIC_URL || file.publicUrl || '',
+    appTokensFile: env.PAPERCUTS_APP_TOKENS_FILE || file.appTokensFile || '',
   };
 }

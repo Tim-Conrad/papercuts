@@ -34,6 +34,8 @@ services:
       PAPERCUTS_PUBLIC_URL: "https://papercuts.lab.t7d.dev"
       PAPERCUTS_GITHUB_HOST: gh.gate
       NODE_EXTRA_CA_CERTS: /gate-ca.crt
+      # Tokens of native apps for POST /app-report (one line: label token repos). Not in git.
+      PAPERCUTS_APP_TOKENS_FILE: /run/app-tokens
       # HOME=/tmp, PAPERCUTS_SHOTS_DIR=/data/shots, PORT=8000 and APP_VERSION come from the image.
     extra_hosts: ["gh.gate:192.168.101.20"]
     volumes:
@@ -41,12 +43,22 @@ services:
       - /etc/gate/ca.crt:/gate-ca.crt:ro
       # Pictures. The volume root must be writable by the uid above (the old image made it 777).
       - shots:/data/shots
+      # Create the file before `up` (`vm secrets push lab`), or Docker makes a folder of that name.
+      - ./secrets/app-tokens:/run/app-tokens:ro
     labels:
       - traefik.enable=true
       - traefik.http.routers.papercuts.rule=Host(`papercuts.lab.t7d.dev`)
       - traefik.http.routers.papercuts.entrypoints=websecure
       - traefik.http.routers.papercuts.tls=true
       - traefik.http.routers.papercuts.middlewares=authelia@file,security-headers@file
+      - traefik.http.routers.papercuts.service=papercuts
+      # Native apps have no Authelia session: only POST /app-report passes without it, the relay checks the app token.
+      - traefik.http.routers.papercuts-app.rule=Host(`papercuts.lab.t7d.dev`) && Path(`/app-report`) && Method(`POST`)
+      - traefik.http.routers.papercuts-app.entrypoints=websecure
+      - traefik.http.routers.papercuts-app.tls=true
+      - traefik.http.routers.papercuts-app.priority=1000
+      - traefik.http.routers.papercuts-app.middlewares=security-headers@file
+      - traefik.http.routers.papercuts-app.service=papercuts
       - traefik.http.services.papercuts.loadbalancer.server.port=8000
       - homepage.group=Tools
       - homepage.name=Papercuts

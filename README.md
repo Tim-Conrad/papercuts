@@ -114,6 +114,23 @@ On a touch screen with speech input, a large "Tap to speak" button leads the pan
 
 With `?papercuts=download` in the URL, or `data-mode="download"`, the widget shows the tab without a relay. Send becomes "Download report" and saves the report as a JSON file. File it later with `papercuts import <file>`. For this mode, serve a copy of `widget/papercuts.js` from the site itself.
 
+## Reports from an Android app
+
+A native app has no origin and no login session, so it reports to `POST /app-report` with a token: `Authorization: Bearer <token>`, a JSON body as for `/report`. The relay reads the tokens from `PAPERCUTS_APP_TOKENS_FILE`, one line per app, on every request (a new token needs no restart):
+
+```text
+# label        token (at least 32 characters)          repos it may report to
+claude-auto    <random token>                          Tim-Conrad/claude-auto
+```
+
+A missing file means that no app may report. A report from an app is always `from: human`: a person filed it on purpose. Apps never file papercuts by themselves; they only attach their state to a report that a person sends.
+
+In the lab, Traefik routes only `POST /app-report` past Authelia (a second router in `docker-compose.yml`); the token is the gate there.
+
+A report may carry up to 3 text **attachments**: `"attachments": [{ "name": "dom.html", "text": "..." }]`, each at most 60,000 characters, the name `[a-z0-9][a-z0-9._-]*`. Each becomes one comment of the issue, in a collapsed block with the marker `<!-- papercut-attachment: <name> -->`. GitHub holds them, so an agent reads them where the relay is out of reach: `papercuts view` lists the names, `papercuts attachment <id> [<name>]` saves one. Attachments work with `/report` too. The app must remove private content before it sends anything: papercuts only redacts secrets.
+
+The Kotlin side (event log, report dialog, outbox) lives in `android/`; see `android/README.md`.
+
 ## The ticket config
 
 `.github/papercuts.json` in the repo of the app defines what a papercut of this app contains. The relay reads it from the default branch (cached for 5 minutes) and applies it to reports from the widget, the JS API and the CLI. Every key is optional. Without the file, the defaults apply.
@@ -158,6 +175,7 @@ npx github:Tim-Conrad/papercuts add tool "gh-axi pr view drops the PR body" --wh
 npx github:Tim-Conrad/papercuts            # the open papercuts of this repo
 npx github:Tim-Conrad/papercuts view 12
 npx github:Tim-Conrad/papercuts shot 12    # save the picture of #12 as a PNG
+npx github:Tim-Conrad/papercuts attachment 12 dom.html  # save a text attachment, e.g. the cleaned DOM an app sent
 npx github:Tim-Conrad/papercuts replay 12  # show the page as the reporter saw it
 npx github:Tim-Conrad/papercuts comment 12 "Option A: ... Option B: ..."
 npx github:Tim-Conrad/papercuts done 12 --fix "gh-axi prints the body since commit abc1234"
