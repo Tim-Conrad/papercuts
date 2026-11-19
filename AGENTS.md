@@ -115,5 +115,8 @@ latest release. So it is the public face of the tool, and it must stay true.
 - `test/showme.test.js` (part of `npm test`) fails if a picture is missing or unused, if a link
   into the README has no heading, if a kind is missing, or if a picture uses something the site
   cannot draw. Rename a README heading: fix the link in `SHOWME.md` too.
+- A release: raise `version` in `package.json` (and the version test) in a PR, merge it, then run the
+  workflow `release` (Actions, Run workflow) with the notes. It drafts the release and its tag; the
+  owner reviews the draft and publishes it.
 - The site changes only with a release. After a merge that changes `SHOWME.md`, tell the owner
   that the tool page shows it after the next release and the next deploy of t7d.dev.
