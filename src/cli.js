@@ -8,7 +8,7 @@ import { toon } from './toon.js';
 import { openPapercuts } from './list.js';
 import { loadRepoConfig, normalizeFields, checkConfigText, CONFIG_PATH } from './ticket.js';
 import { initRepo } from './init.js';
-import { normalizeReport, redact, shorten, parseMarkers, KINDS } from './format.js';
+import { normalizeReport, redact, shorten, parseMarkers, parseAttachment, KINDS } from './format.js';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileReport, targetRepo } from './file.js';
 import { githubClient, GithubError } from './github.js';
@@ -93,6 +93,15 @@ const COMMANDS = {
     flags: { out: 'string', repo: 'string' },
     defaults: ['--out: papercut-<id>.png in this folder', 'PAPERCUTS_RELAY_INTERNAL: unset, then relay pictures come from their public URL'],
     examples: ['papercuts shot 12', 'papercuts shot 12 --out /tmp/p12.png'],
+  },
+  attachment: {
+    usage: 'papercuts attachment <id> [<name>] [--out <file>] [--repo <owner/name>]',
+    about: 'Save a text attachment of a papercut, for example the cleaned DOM of the page that an app showed.',
+    args: ['id'],
+    optional: ['name'],
+    flags: { out: 'string', repo: 'string' },
+    defaults: ['<name>: the only attachment; with several, the list of names', '--out: papercut-<id>-<name> in this folder'],
+    examples: ['papercuts attachment 12', 'papercuts attachment 12 dom.html --out /tmp/dom.html'],
   },
   replay: {
     usage: 'papercuts replay <id> [--out <file>] [--base <url>] [--repo <owner/name>]',
@@ -350,7 +359,7 @@ export async function run(argv, ctx = {}) {
       if (args.length < spec.args.length) {
         throw usageError(`missing <${spec.args[args.length]}> for \`${command}\``, `usage: ${spec.usage}`);
       }
-      if (args.length > spec.args.length) throw usageError(`too many arguments for \`${command}\``, `usage: ${spec.usage}`);
+      if (args.length > spec.args.length + (spec.optional?.length || 0)) throw usageError(`too many arguments for \`${command}\``, `usage: ${spec.usage}`);
       for (const r of spec.required || []) if (!flags[r]) throw usageError(`--${r} is required for \`${command}\``, `usage: ${spec.usage}`);
     }
     if (command === 'skill') {
@@ -485,7 +494,10 @@ export async function run(argv, ctx = {}) {
         body: cut ? shorten(body, VIEW_LIMIT) : body,
       };
       const r = flags.repo ? ` --repo ${flags.repo}` : '';
+      const names = (await client.comments(where, n)).map((c) => parseAttachment(c.body)?.name).filter(Boolean);
+      if (names.length) out.attachments = names.join(' ');
       out.help = cut ? [`Run \`papercuts view ${n} --full${r}\` for the whole body`] : [`Run \`papercuts done ${n} --fix "<what changed>"${r}\` after a fix`];
+      if (names.length) out.help.push(`Run \`papercuts attachment ${n} ${names[0]}${r}\` to save an attachment`);
       print(out);
       return 0;
     }
@@ -516,6 +528,24 @@ export async function run(argv, ctx = {}) {
       const out = flags.out || join(cwd, `papercut-${n}.png`);
       writeFileSync(out, png);
       print({ shot: tilde(out, env), bytes: png.length });
+      return 0;
+    }
+
+    if (command === 'attachment') {
+      const n = issueNumber(args[0], 'attachment');
+      await client.getIssue(where, n);
+      const all = (await client.comments(where, n)).map((c) => parseAttachment(c.body)).filter(Boolean);
+      if (!all.length) throw runError(`papercut #${n} has no attachment`, `Run \`papercuts view ${n}\` to read it`);
+      const r = flags.repo ? ` --repo ${flags.repo}` : '';
+      const pick = args[1] ? all.find((a) => a.name === args[1]) : all.length === 1 ? all[0] : null;
+      if (!pick) {
+        print({ attachments: all.map((a) => ({ name: a.name, chars: a.text.length })),
+          help: [`Run \`papercuts attachment ${n} <name>${r}\` to save one`] });
+        return args[1] ? 1 : 0;
+      }
+      const out = flags.out || join(cwd, `papercut-${n}-${pick.name}`);
+      writeFileSync(out, pick.text);
+      print({ attachment: pick.name, file: tilde(out, env), chars: pick.text.length });
       return 0;
     }
 

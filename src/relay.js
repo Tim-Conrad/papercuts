@@ -9,7 +9,8 @@ import { fileReport } from './file.js';
 import { shotStore } from './shots.js';
 import { listPapercuts } from './list.js';
 import { loadRepoConfig, normalizeFields } from './ticket.js';
-import { originAllowed, repoAllowed } from './config.js';
+import { originAllowed, readAppTokens, repoAllowed } from './config.js';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 const WIDGET = fileURLToPath(new URL('../widget/papercuts.js', import.meta.url));
 const ICON = fileURLToPath(new URL('../icon.svg', import.meta.url));
@@ -18,6 +19,16 @@ const PKG_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.me
 export const appVersion = (env = process.env) => env.APP_VERSION || PKG_VERSION;
 // 8 MB of PNG is about 10.7 MB as base64, plus the context.
 const MAX_BODY = 12 * 1024 * 1024;
+
+const digest = (s) => createHash('sha256').update(String(s)).digest();
+
+// The app whose token the request carries, or null. Compares digests, so the time does not tell how much matched.
+export function appFor(header, tokens) {
+  const m = String(header || '').match(/^Bearer ([A-Za-z0-9._~+\/=-]{32,256})$/);
+  if (!m) return null;
+  const got = digest(m[1]);
+  return tokens.find((t) => timingSafeEqual(digest(t.token), got)) || null;
+}
 
 export function createRelay(config, { client }) {
   const version = config.version || appVersion();
@@ -111,12 +122,21 @@ export function createRelay(config, { client }) {
           return send(502, { ok: false, error: `github: ${e.status ?? 0} ${e.message}`, help: 'try again later' });
         }
       }
-      if (url.pathname !== '/report') return send(404, { ok: false, error: 'not found', help: 'the relay has /papercuts.js, /status, /healthz, /icon.svg, /report, /list and /shots/<id>.png' });
-      if (req.method !== 'POST') return send(405, { ok: false, error: 'use POST', help: 'POST a JSON text body to /report' });
-      // The page must be able to read this refusal, or it takes it for a network error and retries forever.
-      if (!allowed) return send(403, { ok: false, retry: false, error: 'origin not allowed', help: 'add the site origin to PAPERCUTS_ORIGINS' }, 'application/json', true);
+      // A native app (no origin, no login session): its token says which repos it may report to.
+      // In the lab, Traefik routes only POST /app-report past Authelia; the token is the only gate here.
+      const isApp = url.pathname === '/app-report';
+      if (url.pathname !== '/report' && !isApp) return send(404, { ok: false, error: 'not found', help: 'the relay has /papercuts.js, /status, /healthz, /icon.svg, /report, /app-report, /list and /shots/<id>.png' });
+      if (req.method !== 'POST') return send(405, { ok: false, error: 'use POST', help: `POST a JSON text body to ${url.pathname}` });
+      let app = null;
+      if (isApp) {
+        app = appFor(req.headers.authorization, readAppTokens(config.appTokensFile));
+        if (!app) return send(401, { ok: false, retry: false, error: 'no valid app token', help: 'send Authorization: Bearer <token> from PAPERCUTS_APP_TOKENS_FILE' }, 'application/json', false);
+      } else if (!allowed) {
+        // The page must be able to read this refusal, or it takes it for a network error and retries forever.
+        return send(403, { ok: false, retry: false, error: 'origin not allowed', help: 'add the site origin to PAPERCUTS_ORIGINS' }, 'application/json', true);
+      }
       const type = String(req.headers['content-type'] || '').split(';')[0].trim();
-      if (type !== 'text/plain') return send(415, { ok: false, error: 'content type must be text/plain', help: 'send JSON text as text/plain, so that no preflight happens' });
+      if (type !== 'text/plain' && !(isApp && type === 'application/json')) return send(415, { ok: false, error: 'content type must be text/plain', help: 'send JSON text as text/plain, so that no preflight happens' });
       const chunks = [];
       let size = 0;
       for await (const chunk of req) {
@@ -127,8 +147,12 @@ export function createRelay(config, { client }) {
       const raw = Buffer.concat(chunks).toString('utf8');
       let payload;
       try { payload = JSON.parse(raw); } catch { return send(400, { ok: false, error: 'body is not JSON', help: 'send {"from":"human","report":{...}}' }); }
-      const norm = normalizeReport(payload?.report, payload?.from ?? 'human');
+      // An app reports for a person: never as an agent, so no +1 merging of different reports.
+      const norm = normalizeReport(payload?.report, isApp ? 'human' : payload?.from ?? 'human');
       if (!norm.ok) return send(400, { ...norm, retry: false });
+      if (app && !repoAllowed(norm.report.repo, app.repos)) {
+        return send(403, { ok: false, retry: false, error: `the token of ${app.label} may not report to ${norm.report.repo}`, help: 'add the repo to its line in PAPERCUTS_APP_TOKENS_FILE' });
+      }
       if (!repoAllowed(norm.report.repo, config.repos)) {
         return send(403, { ok: false, retry: false, error: `repo ${norm.report.repo} not allowed`, help: 'add the repo to PAPERCUTS_REPOS' });
       }

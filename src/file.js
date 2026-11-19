@@ -1,5 +1,5 @@
 // File one report: return the old issue for a known id, add +1 for a known agent fingerprint, else open an issue.
-import { buildIssue, fingerprint, parseMarkers } from './format.js';
+import { attachmentComment, buildIssue, fingerprint, parseMarkers } from './format.js';
 import { GithubError } from './github.js';
 
 const HELP = {
@@ -55,7 +55,16 @@ export async function fileReport(report, { client, target, shots, publicUrl, con
     }
     const issue = buildIssue(report, target, { ...(report.shot ? await savePicture(report, repo, { client, shots, publicUrl }) : {}), config });
     await client.ensureLabels(repo, issue.labels);
-    return found(await client.createIssue(repo, issue), false);
+    const created = await client.createIssue(repo, issue);
+    // An attachment that does not arrive never loses the report: the issue exists, the answer says what is missing.
+    const missing = [];
+    for (const a of report.attachments || []) {
+      try { await client.comment(repo, created.number, attachmentComment(a)); } catch (e) {
+        if (!(e instanceof GithubError)) throw e;
+        missing.push(a.name);
+      }
+    }
+    return { ...found(created, false), ...(missing.length ? { attachmentsMissing: missing } : {}) };
   } catch (e) {
     if (!(e instanceof GithubError)) throw e;
     // Retry only what can heal by itself: no answer, a GitHub outage, a rate limit. A wrong repo or token never heals.

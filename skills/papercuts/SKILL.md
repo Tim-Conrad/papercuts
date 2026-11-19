@@ -28,6 +28,7 @@ Do not stop your task to report. Report in one command and continue. A repeat ad
 - `papercuts config [--file <path>] [--check] [--repo <owner/name>]`: Show the ticket config of the repo (.github/papercuts.json): kinds, fields, presets, labels, warnings.
 - `papercuts init [--store github|local]`: Set up papercuts in the repo of an app: a starter .github/papercuts.json, the AGENTS.md block, and the steps for your stack.
 - `papercuts shot <id> [--out <file>] [--repo <owner/name>]`: Save the picture of a papercut as a PNG file.
+- `papercuts attachment <id> [<name>] [--out <file>] [--repo <owner/name>]`: Save a text attachment of a papercut, for example the cleaned DOM of the page that an app showed.
 - `papercuts replay <id> [--out <file>] [--base <url>] [--repo <owner/name>]`: Show what the reporter saw: the page with the same size, place and storage, the element in a red frame.
 - `papercuts import <file.json>`: File a report that the widget saved as a file (?papercuts=download). A second import is a no-op.
 - `papercuts setup --target per-project|central [--repo <owner/name>] [--credential gh|file] [--token-file <path>] [--hooks claude,codex|none]`: Choose where papercuts go, the GitHub credential, and show papercuts at the start of each agent session.

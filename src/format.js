@@ -6,7 +6,7 @@ export const KINDS = ['bug', 'ux', 'copy', 'tool', 'rule', 'path', 'idea', 'othe
 export const WIDGET_KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
 export const SOURCES = ['human', 'agent'];
 
-export const LIMITS = { text: 3000, where: 120, field: 500, errors: 20, body: 60000, title: 70, shot: 8 * 1024 * 1024, pins: 20, pin: 120 };
+export const LIMITS = { attachments: 3, attachment: 60000, text: 3000, where: 120, field: 500, errors: 20, body: 60000, title: 70, shot: 8 * 1024 * 1024, pins: 20, pin: 120 };
 const PNG_MAGIC = Buffer.from('89504e470d0a1a0a', 'hex');
 const PNG_PREFIX = 'data:image/png;base64,';
 
@@ -141,7 +141,41 @@ export function normalizeReport(input, from) {
     text: shorten(clean(String(p?.text ?? '').replace(/\s+/g, ' ').trim()), LIMITS.pin),
   }));
   const marks = cleanMarks(src.marks);
-  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context, place, shot, pins, ...(marks.length ? { marks } : {}) } };
+  const att = cleanAttachments(src.attachments);
+  if (!att.ok) return att;
+  return { ok: true, report: { id, from, kind, text: clean(text), where, repo, context, place, shot, pins, ...(marks.length ? { marks } : {}), ...(att.list.length ? { attachments: att.list } : {}) } };
+}
+
+// Text attachments, for example the cleaned DOM of the page an app showed. Each becomes one comment of the issue,
+// so an agent reads it from GitHub (`papercuts attachment <id>`), also where the relay is out of reach.
+const ATTACHMENT_NAME = /^[a-z0-9][a-z0-9._-]{0,40}$/;
+
+function cleanAttachments(list) {
+  if (list == null) return { ok: true, list: [] };
+  const bad = (why) => fail(`attachments: ${why}`, `send at most ${LIMITS.attachments} of {"name":"dom.html","text":"..."}, each text at most ${LIMITS.attachment} characters`);
+  if (!Array.isArray(list) || list.length > LIMITS.attachments) return bad('not a list, or too many');
+  const out = [];
+  for (const a of list) {
+    const name = String(a?.name ?? '');
+    if (!ATTACHMENT_NAME.test(name) || out.some((x) => x.name === name)) return bad(`name "${name.slice(0, 50)}" must be unique and match ${ATTACHMENT_NAME}`);
+    if (typeof a.text !== 'string' || !a.text.length) return bad(`"${name}" has no text`);
+    if (a.text.length > LIMITS.attachment) return bad(`"${name}" has ${a.text.length} characters`);
+    out.push({ name, text: clean(a.text) });
+  }
+  return { ok: true, list: out };
+}
+
+// The comment of one attachment: a marker, then the text in a fence that no backtick run inside can close.
+export function attachmentComment({ name, text }) {
+  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
+  const fence = '`'.repeat(longest + 1);
+  const lang = (name.match(/\.([a-z0-9]+)$/) || [])[1] || '';
+  return `<!-- papercut-attachment: ${name} -->\n<details><summary>Attachment <code>${name}</code> (${text.length} characters)</summary>\n\n${fence}${lang}\n${text}\n${fence}\n</details>\n`;
+}
+
+export function parseAttachment(body) {
+  const m = String(body ?? '').match(/^<!-- papercut-attachment: ([a-z0-9][a-z0-9._-]{0,40}) -->\n[^\n]*\n\n(`{3,})[a-z0-9]*\n([\s\S]*?)\n\2\n<\/details>/);
+  return m ? { name: m[1], text: m[3] } : null;
 }
 
 export function fingerprint(report) {
