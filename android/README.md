@@ -4,8 +4,14 @@ A person reports a problem on purpose; the app attaches its state. The app never
 
 - **Event log** (`Papercuts.event`): what the app did lately, kept only on the device (24 h, 300 events). The last
   30 minutes go with a report, one line each.
-- **Report dialog** (`Papercuts.showDialog`): one input and Send, like the web widget, and a box "attach the app state".
-  It takes a screenshot first and paints over the views you name (for example a WebView with a conversation).
+- **Report sheet** (`Papercuts.showDialog`): the phone layout of the web widget. A bottom sheet with a large speak
+  button (speech input that keeps listening through short pauses), one text field, the screen picture and a switch
+  "attach the app state". Tap the picture to draw on it and set numbered pins with a note each (like "Mark screen"
+  on the web). Send says what happened: "Sent as #12" with a link, "saved on the phone" while the relay is out of
+  reach, or why the relay refused it. Then "Report another" or "Close". Light and dark follow the phone; the accent
+  is `Config.accent`. It takes a screenshot first and paints over the views you name (for example a WebView with a
+  conversation). All words are in `Papercuts.Strings` (English defaults; Claude Auto passes the German ones of the
+  web widget).
 - **Drafts** (`capture` + `keepDraft`): capture the state now, finish the report later from a notification
   (for example a button in Android Auto).
 - **Outbox**: reports wait as files until the relay answers (often only on the home network), then go to
@@ -29,4 +35,13 @@ Papercuts.event("call_start", "source" to "car")
 Papercuts.showDialog(activity, where = "MainActivity", state = { done -> done(State(mapOf("phase" to phase))) })
 ```
 
-The app needs `INTERNET` and, to send when the network comes back, `ACCESS_NETWORK_STATE`.
+The app needs `INTERNET` and, to send when the network comes back, `ACCESS_NETWORK_STATE`. For the speak button
+it needs `RECORD_AUDIO` (asked on the first tap) and, from Android 11, the speech service visible in its manifest:
+
+```xml
+<queries>
+    <intent><action android:name="android.speech.RecognitionService" /></intent>
+</queries>
+```
+
+Without both, or on a phone without speech recognition, the sheet leaves the speak button out.

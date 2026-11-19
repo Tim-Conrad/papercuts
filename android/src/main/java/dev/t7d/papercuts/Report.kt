@@ -61,7 +61,19 @@ data class Draft(
 object ReportPayload {
     const val MAX_TEXT = 3000
 
-    fun build(draft: Draft, repo: String, text: String, kind: String = "other", withState: Boolean = true): JSONObject {
+    /**
+     * The [shot] goes along when the person kept it in the sheet (it shows there and can be removed), the state
+     * only [withState]. [pins] are the notes of the numbered pins on a marked picture.
+     */
+    fun build(
+        draft: Draft,
+        repo: String,
+        text: String,
+        kind: String = "other",
+        withState: Boolean = true,
+        shot: ByteArray? = if (withState) draft.shot else null,
+        pins: List<String> = emptyList(),
+    ): JSONObject {
         val r = JSONObject()
             .put("id", draft.id)
             .put("kind", kind)
@@ -73,7 +85,10 @@ object ReportPayload {
             if (draft.attachments.isNotEmpty()) {
                 r.put("attachments", JSONArray().apply { draft.attachments.take(3).forEach { put(JSONObject().put("name", it.name).put("text", it.text)) } })
             }
-            draft.shot?.let { r.put("shot", "data:image/png;base64," + Base64.getEncoder().encodeToString(it)) }
+        }
+        shot?.let { r.put("shot", "data:image/png;base64," + Base64.getEncoder().encodeToString(it)) }
+        if (shot != null && pins.isNotEmpty()) {
+            r.put("pins", JSONArray().apply { pins.take(20).forEachIndexed { i, t -> put(JSONObject().put("nr", i + 1).put("text", t.take(120))) } })
         }
         return JSONObject().put("from", "human").put("report", r)
     }
