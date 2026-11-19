@@ -24,7 +24,7 @@ const digest = (s) => createHash('sha256').update(String(s)).digest();
 
 // The app whose token the request carries, or null. Compares digests, so the time does not tell how much matched.
 export function appFor(header, tokens) {
-  const m = String(header || '').match(/^Bearer ([A-Za-z0-9._~+\/=-]{32,256})$/);
+  const m = String(header || '').match(/^Bearer ([A-Za-z0-9._~+/=-]{32,256})$/);
   if (!m) return null;
   const got = digest(m[1]);
   return tokens.find((t) => timingSafeEqual(digest(t.token), got)) || null;
