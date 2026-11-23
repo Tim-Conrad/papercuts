@@ -10,6 +10,7 @@
   const QUEUE_DB = 'papercuts-queue-v1';
   const POS_KEY = 'papercuts-pos-v1';
   const SEEN_KEY = 'papercuts-seen-v1';
+  const SPEECH_KEY = 'papercuts-speech-lang-v1';
   const MAX_ERRORS = 20;
   const TEXT_MAX = 3000; // LIMITS.text of src/format.js
   const KINDS = ['bug', 'ux', 'copy', 'idea', 'other'];
@@ -46,6 +47,7 @@
       loginFirst: 'Log in to report. Open the login page, then come back: ', loginLink: 'log in',
       micBlocked: 'Microphone blocked. Allow it in the browser settings, or type instead.', noSpeech: 'I heard nothing. Tap and speak again, or type instead.',
       micNetwork: 'Speech input needs a network connection. Type instead.', micFailed: 'Speech input failed. Type instead.', pinLabel: (n) => `Pin ${n}: what is here?`,
+      speechLang: 'Speech language',
     },
     de: {
       tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Markieren', parent: 'Größer', child: 'Kleiner',
@@ -68,6 +70,7 @@
       loginFirst: 'Zum Melden anmelden. Öffne die Login-Seite und komm zurück: ', loginLink: 'anmelden',
       micBlocked: 'Mikrofon blockiert. Erlaube es in den Browser-Einstellungen oder tippe.', noSpeech: 'Ich habe nichts gehört. Tippe und sprich noch einmal oder tippe.',
       micNetwork: 'Spracheingabe braucht Netz. Tippe stattdessen.', micFailed: 'Spracheingabe ging nicht. Tippe stattdessen.', pinLabel: (n) => `Nummer ${n}: Was ist hier?`,
+      speechLang: 'Sprache der Spracheingabe',
     },
   };
   let t = T.en;
@@ -442,6 +445,12 @@
     .counter.near { color: var(--pc-warn); font-weight: 600; }
     .mic[aria-pressed="true"] { background: var(--pc-err); color: #fff; animation: pc-pulse 1.4s ease-in-out infinite; }
     .mic[aria-pressed="true"] * { color: #fff; }
+    /* the language of speech input: DE or EN, one tap */
+    .langs { display: inline-flex; padding: 2px; gap: 2px; border: 1px solid var(--pc-line); border-radius: 999px; background: var(--pc-bg); }
+    .langs button { min-width: 34px; height: 26px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 650; letter-spacing: .02em; color: var(--pc-muted); transition: background .15s, color .15s; }
+    .langs button:hover { color: var(--pc-ink); }
+    .langs button[aria-checked="true"] { background: var(--pc-ink); color: var(--pc-bg); }
+    .speakwrap .langs button { min-width: 44px; height: 40px; font-size: 13px; }
 
     /* quick phrases and fields */
     .presets { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px;
@@ -463,6 +472,8 @@
     /* voice first on a phone: speech, quick phrases and text lead, the rest follows */
     .body.voice > .speakwrap { order: -3; } .body.voice > .presets { order: -2; } .body.voice > .field { order: -1; }
     .speakwrap { display: grid; justify-items: center; gap: 8px; padding: 6px 0 2px; }
+    .speakrow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; justify-self: stretch; gap: 16px; }
+    .speakrow > .speak { grid-column: 2; } .speakrow > .langs { justify-self: start; }
     button.speak { width: 76px; height: 76px; border-radius: 999px; background: var(--pc-accent); display: inline-flex; align-items: center; justify-content: center;
       box-shadow: 0 12px 28px -10px color-mix(in srgb, var(--pc-accent) 80%, transparent); transition: transform .1s; }
     button.speak .ico { width: 32px; height: 32px; }
@@ -889,6 +900,7 @@
       if (isHidden()) return;
       if (!marks.length && lastTap && Date.now() - lastTap.at < 15000 && lastTap.el.isConnected) { marks.push({ type: 'element', el: lastTap.el, note: '', chain: [] }); lastTap = null; }
       rehome();
+      renderLangs();
       if (doneState) showForm();
       els.panel.hidden = false;
       els.scrim.hidden = false;
@@ -1069,11 +1081,32 @@
     // The browser ends speech input after a short pause. A pause to think must not end it,
     // so the input starts again until the person taps stop or stays silent this long.
     const SPEECH_SILENCE_MS = 10000;
+    // The person picks DE or EN next to the microphone; the choice stays on this device.
+    // Until then: data-speech-lang, data-lang, the repo config, the page, the browser.
+    const configuredLang = () => cfg.speechLang || cfg.lang || (repoCfg && repoCfg.lang) || document.documentElement.lang || navigator.language || 'en';
+    function speechChoice() {
+      try { const v = localStorage.getItem(SPEECH_KEY); if (v === 'de' || v === 'en') return v; } catch (_) { /* no memory: the default */ }
+      return /^de\b/i.test(configuredLang()) ? 'de' : 'en';
+    }
+    // The configured tag when it is the chosen language (for example "de-AT"), else a plain one.
+    function speechTag() {
+      const choice = speechChoice(), conf = configuredLang();
+      return conf.toLowerCase().split('-')[0] === choice ? conf : { de: 'de-DE', en: 'en-US' }[choice];
+    }
+    function renderLangs() {
+      const choice = speechChoice();
+      for (const b of els.form.querySelectorAll('.langs button')) b.setAttribute('aria-checked', String(b.dataset.lang === choice));
+    }
+    function setSpeechLang(l) {
+      if (l === speechChoice()) return;
+      try { localStorage.setItem(SPEECH_KEY, l); } catch (_) { /* this time only */ }
+      renderLangs();
+      if (listening) listening.relang();
+    }
     function toggleMic() {
       if (listening) { listening.stop(); return; }
       const rec = new Speech();
-      // data-speech-lang, else the language of the page, for example "de-DE".
-      rec.lang = cfg.speechLang || cfg.lang || (repoCfg && repoCfg.lang) || document.documentElement.lang || 'en-US';
+      rec.lang = speechTag();
       rec.interimResults = true;
       const base = els.text.value.trim();
       // On a phone, speech stops by itself after a pause: open, speak, send is three taps.
@@ -1081,7 +1114,7 @@
       rec.continuous = !matchMedia('(pointer: coarse)').matches;
       // Words show live while the person speaks. The final words replace the live ones.
       let done = '';
-      let heard = false, stopped = false, lastWords = Date.now();
+      let heard = false, stopped = false, relang = false, lastWords = Date.now();
       rec.onresult = (e) => {
         heard = true; lastWords = Date.now();
         let live = '';
@@ -1094,8 +1127,10 @@
         textChanged();
       };
       rec.onend = () => {
+        // A new language: the words so far stay, the input goes on in the new language.
+        if (relang && !stopped) { relang = false; lastWords = Date.now(); }
         if (!stopped && Date.now() - lastWords < SPEECH_SILENCE_MS) {
-          try { rec.start(); return; } catch (_) { /* cannot start again: end the input */ }
+          try { rec.lang = speechTag(); rec.start(); return; } catch (_) { /* cannot start again: end the input */ }
         }
         if (!stopped && !heard) setStatus('warn', t.noSpeech);
         listening = null;
@@ -1109,7 +1144,7 @@
         stopped = true;
         setStatus('warn', MIC_ERRORS[e.error] || t.micFailed);
       };
-      listening = { stop() { stopped = true; rec.stop(); } };
+      listening = { stop() { stopped = true; rec.stop(); }, relang() { relang = true; rec.stop(); } };
       els.mic.setAttribute('aria-pressed', 'true');
       els.mic.setAttribute('aria-label', t.micStop);
       els.mic.title = t.micStop;
@@ -1333,9 +1368,14 @@
     const VOICE_FIRST = !!Speech && cfg.voice !== 'off' && matchMedia('(pointer: coarse)').matches;
     els.speak = h('button', { type: 'button', class: 'speak', 'aria-pressed': 'false', 'aria-label': t.speak, onclick: toggleMic }, icon('mic'));
     els.speakLabel = h('div', { class: 'hint2' }, t.speak);
-    els.speakWrap = h('div', { class: 'speakwrap' }, els.speak, els.speakLabel, h('div', { class: 'hint3' }, t.typeInstead));
+    const langs = () => h('div', { class: 'langs', role: 'radiogroup', 'aria-label': t.speechLang, title: t.speechLang },
+      ...[['de', 'DE', 'Deutsch'], ['en', 'EN', 'English']].map(([l, label, name]) =>
+        h('button', { type: 'button', role: 'radio', lang: l, 'data-lang': l, 'aria-label': name, 'aria-checked': 'false', onclick: () => setSpeechLang(l) }, label)));
+    els.micLangs = langs();
+    els.micLangs.hidden = !Speech;
+    els.speakWrap = h('div', { class: 'speakwrap' }, h('div', { class: 'speakrow' }, els.speak, langs()), els.speakLabel, h('div', { class: 'hint3' }, t.typeInstead));
     els.speakWrap.hidden = !VOICE_FIRST;
-    if (VOICE_FIRST) els.mic.hidden = true;
+    if (VOICE_FIRST) els.mic.hidden = els.micLangs.hidden = true;
 
     els.presets = h('div', { class: 'presets' }, ...presetList().map((p) => h('button', { type: 'button', onclick: () => { setKind(kindsList().includes(p.kind) ? p.kind : kind); els.text.value = p.text; textChanged(); if (!matchMedia('(pointer: coarse)').matches) els.text.focus(); } }, p.text)));
     els.presets.hidden = !presetList().length;
@@ -1393,7 +1433,7 @@
     els.form = h('div', { class: 'body form-area' },
       els.speakWrap,
       els.presets,
-      h('div', { class: 'field' }, els.text, h('div', { class: 'fieldbar' }, els.mic, els.counter)),
+      h('div', { class: 'field' }, els.text, h('div', { class: 'fieldbar' }, els.mic, els.micLangs, els.counter)),
       els.where,
       h('div', { class: 'attach' }, els.pick, els.markPic, els.markScreen),
       els.previewRow);
