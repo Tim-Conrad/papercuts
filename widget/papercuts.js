@@ -30,7 +30,7 @@
       tab: 'Papercut', tabTitle: 'Report a papercut (Alt+Shift+P)', title: 'Papercut', pick: 'Mark', parent: 'Larger', child: 'Smaller',
       whole: 'Whole view', wholeSub: 'The part of the page that you see', kind: 'Kind', placeholder: 'What is wrong? One sentence is enough.', send: 'Send', download: 'Download report',
       close: 'Close', sending: 'Sending…', sent: 'Sent: ', writeFirst: 'Write one sentence first.',
-      saved: 'Saved in this browser. It goes out later.', savedLogin: 'Saved in this browser. Log in again, then it goes out.',
+      savedBg: 'Saved. It is sent in the background.', saved: 'Saved in this browser. It goes out later.', savedLogin: 'Saved in this browser. Log in again, then it goes out.',
       notSent: 'Not sent: ', hint: 'Tap or click the part you mean', waiting: (n) => ` · ${n} waiting`,
       login: 'Log in again at your login page, then the report goes out.', downloaded: 'Saved as a file. Run `papercuts import <file>` later.',
       kinds: { bug: 'Bug', ux: 'Hard to use', copy: 'Wording', idea: 'Idea', other: 'Other', tool: 'Tool', rule: 'Rule', path: 'Path' },
@@ -53,7 +53,7 @@
       tab: 'Papercut', tabTitle: 'Papercut melden (Alt+Shift+P)', title: 'Papercut', pick: 'Markieren', parent: 'Größer', child: 'Kleiner',
       whole: 'Ganze Ansicht', wholeSub: 'Der Teil der Seite, den du siehst', kind: 'Art', placeholder: 'Was stimmt nicht? Ein Satz reicht.', send: 'Senden', download: 'Als Datei speichern',
       close: 'Schließen', sending: 'Sende…', sent: 'Gesendet: ', writeFirst: 'Schreib zuerst einen Satz.',
-      saved: 'Im Browser gespeichert. Geht später raus.', savedLogin: 'Im Browser gespeichert. Melde dich neu an, dann geht es raus.',
+      savedBg: 'Gespeichert, wird im Hintergrund gesendet.', saved: 'Im Browser gespeichert. Geht später raus.', savedLogin: 'Im Browser gespeichert. Melde dich neu an, dann geht es raus.',
       notSent: 'Nicht gesendet: ', hint: 'Tippe oder klicke auf die Stelle', waiting: (n) => ` · ${n} warten`,
       login: 'Melde dich auf der Login-Seite neu an, dann geht der Bericht raus.', downloaded: 'Als Datei gespeichert. Später `papercuts import <datei>` ausführen.',
       kinds: { bug: 'Fehler', ux: 'Schwer zu bedienen', copy: 'Text', idea: 'Idee', other: 'Sonst', tool: 'Werkzeug', rule: 'Regel', path: 'Pfad' },
@@ -229,6 +229,9 @@
   const queued = () => queueOp('readonly', (s) => s.getAll());
 
   // ---- transport ----
+  // A relay that takes the connection and never answers must not hold a report forever. The relay files a report
+  // once per id, so a report that times out and goes out again later is no duplicate.
+  const SEND_TIMEOUT_MS = 20000;
   // A simple request: POST, text/plain, no custom headers. No preflight, so a login proxy can stay in front.
   async function send(payload) {
     let res;
@@ -236,6 +239,7 @@
       res = await fetch(`${relay}/report`, {
         method: 'POST', credentials: 'include', redirect: 'manual',
         headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload),
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(SEND_TIMEOUT_MS) } : {}),
       });
     } catch (_) {
       return { delivered: false, transient: true, reason: 'offline' };
@@ -258,6 +262,8 @@
 
   let ui = { badge() {}, notice() {}, open() {}, reload() {} };
   let flushing = false;
+  // Reports this tab sends right now: the flush leaves them out.
+  const sending = new Set();
   // All tabs of the site share one queue. The lock keeps two tabs from sending the same report at once.
   const flush = () => (navigator.locks ? navigator.locks.request('papercuts-flush', { ifAvailable: true }, (lock) => lock && flushNow()) : flushNow());
   async function flushNow() {
@@ -265,6 +271,7 @@
     flushing = true;
     try {
       for (const payload of await queued()) {
+        if (sending.has(payload.report.id)) continue;
         const r = await send(payload);
         if (r.delivered || !r.transient) {
           await dequeue(payload.report.id);
@@ -323,6 +330,29 @@
     }
     ui.badge();
     return Object.assign({ ok: false, queued: true }, REASON[r.reason]);
+  }
+
+  // The panel's way: the report goes into the queue first, so the panel answers at once, and then it goes out.
+  // [answered] hears what became of it, in the form of report(). Returns false when this browser cannot keep it.
+  async function reportLater(input, el, answered) {
+    const payload = buildPayload(input, el);
+    if (!(await enqueue(payload))) return false;
+    ui.badge();
+    const id = payload.report.id;
+    sending.add(id);
+    (async () => {
+      try {
+        const r = await send(payload);
+        if (r.delivered || !r.transient) await dequeue(id);
+        if (r.delivered) { ui.reload(); return r.data; }
+        if (!r.transient) return Object.assign({ ok: false, queued: false }, r.data);
+        return Object.assign({ ok: false, queued: true }, REASON[r.reason]);
+      } finally {
+        sending.delete(id);
+        ui.badge();
+      }
+    })().then(answered, (e) => answered({ ok: false, queued: true, error: String((e && e.message) || e) }));
+    return id;
   }
 
   async function status() {
@@ -1241,16 +1271,21 @@
     // After a send: a thank-you with "Report another" and "Close", no second send by accident.
     let doneState = false;
     let autoClose = null;
-    function showDone() {
+    // The report whose answer the panel shows, until "Report another" or the next open.
+    let shownReport = null;
+    const closeSoon = () => { if (matchMedia('(pointer: coarse)').matches) autoClose = setTimeout(close, 2500); };
+    function showDone(id = null) {
       doneState = true;
+      shownReport = id;
       els.form.hidden = true;
       els.sendrow.hidden = true;
       els.doneRow.hidden = false;
       els.another.focus({ preventScroll: true });
-      if (matchMedia('(pointer: coarse)').matches) autoClose = setTimeout(close, 2500);
+      if (!id) closeSoon();
     }
     function showForm() {
       doneState = false;
+      shownReport = null;
       clearTimeout(autoClose);
       els.form.hidden = false;
       els.sendrow.hidden = false;
@@ -1287,16 +1322,43 @@
       }
       els.send.disabled = true;
       els.send.classList.add('busy');
+      const thanks = (r) => setStatus('ok', t.thanks, r.url ? h('a', { href: r.url, target: '_blank', rel: 'noopener' }, `#${r.issue}`) : h('b', {}, `#${r.issue}`));
+      const savedNote = (msg) => queued().then((q) => setStatus(msg === t.savedBg ? 'info' : 'warn', msg + (q.length > 1 ? t.waiting(q.length) : '')));
+      // The panel answers as soon as the report is in the queue; the answer of the relay updates it while it shows.
+      let id = null;
+      id = await reportLater(input, firstElement(), (r) => {
+        const shown = id && shownReport === id;
+        if (r.ok) {
+          if (shown) { thanks(r); closeSoon(); }
+        } else if (r.queued) {
+          if (shown) savedNote(/log in/.test(r.help) ? t.savedLogin : t.saved);
+        } else if (shown || !els.text.value.trim()) {
+          // Refused: the text comes back, so the person can change it and send again.
+          if (doneState) showForm();
+          els.text.value = text;
+          textChanged();
+          setStatus('err', `${t.notSent}${r.error}. ${r.help || ''}`);
+        }
+      });
+      els.send.disabled = false;
+      els.send.classList.remove('busy');
+      if (id) {
+        clearForm();
+        showDone(id);
+        savedNote(t.savedBg);
+        return;
+      }
+      // This browser cannot keep the report: wait for the relay, as long as the send timeout.
       setStatus('info', t.sending);
+      els.send.disabled = true;
+      els.send.classList.add('busy');
       const r = await window.papercuts.report({ ...input, _el: firstElement() });
       els.send.disabled = false;
       els.send.classList.remove('busy');
       if (r.ok) {
-        setStatus('ok', t.thanks, r.url ? h('a', { href: r.url, target: '_blank', rel: 'noopener' }, `#${r.issue}`) : h('b', {}, `#${r.issue}`));
+        thanks(r);
         clearForm();
         showDone();
-      } else if (r.queued) {
-        setStatus('warn', /log in/.test(r.error) ? t.savedLogin : t.saved);
       } else {
         setStatus('err', `${t.notSent}${r.error}. ${r.help || ''}`);
       }

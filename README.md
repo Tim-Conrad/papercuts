@@ -199,7 +199,9 @@ if (window.papercuts) {
 }
 ```
 
-`report()` takes `kind`, `text`, `where`, `fields`, `marks` and `from` (`"agent"` by default, `"human"` for a report that a person wrote in the app's own form). `report()` never throws. It returns `{ ok, issue, url, deduped }`, or `{ ok: false, error, help, queued }`. A report that the relay cannot take now waits in the browser (IndexedDB) and goes out later. The browser removes known secret patterns before it stores a report.
+`report()` takes `kind`, `text`, `where`, `fields`, `marks` and `from` (`"agent"` by default, `"human"` for a report that a person wrote in the app's own form). `report()` never throws. It returns `{ ok, issue, url, deduped }`, or `{ ok: false, error, help, queued }`. A report that the relay cannot take now waits in the browser (IndexedDB) and goes out later. `report()` stops waiting for the relay after 20 seconds and queues the report. The relay files a report once per id, so a report that goes out twice is no duplicate. The browser removes known secret patterns before it stores a report.
+
+The panel of the widget never waits for the relay. Send puts the report into the queue, and the panel answers at once: "Saved. It is sent in the background.", with "Report another" and "Close". The send runs after that. If the relay answers while the panel shows the report, the status changes to the issue link. If the relay refuses the report, the form comes back with the text and the reason. If the browser cannot store the report, the panel waits for the relay as before.
 
 The repo includes a skill for agents (`skills/papercuts/SKILL.md`). The file `src/agents-block.md` holds the block that `papercuts init` puts into the `AGENTS.md` of a project; you can also copy it by hand.
 
