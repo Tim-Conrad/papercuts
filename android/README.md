@@ -2,8 +2,13 @@
 
 A person reports a problem on purpose; the app attaches its state. The app never files a papercut by itself.
 
-- **Event log** (`Papercuts.event`): what the app did lately, kept only on the device (24 h, 300 events). The last
-  30 minutes go with a report, one line each.
+- **Event log** (`Papercuts.event`): what the app did lately, kept only on the device (24 h, at most 5000 events).
+  A report carries the whole log as the attachment `events.log`, one line per event, oldest first. A run of equal
+  events becomes one line with a count (`net n=wlan ×3 until 14:05:40`). Events in `Config.quietEvents` (bursts, for
+  example a list that the car asks for) count as one run even with other fields. Events in `Config.sectionEvents`
+  (for example `call_start`) open a block with an empty line and `## `, so that a reader sees each call. If the log
+  is longer than the 60000 characters of an attachment, the oldest lines go. The context of the report keeps the
+  last 40 lines (`events`). The app keeps two attachments of its own (the relay takes three).
 - **Report sheet** (`Papercuts.showDialog`): the phone layout of the web widget. A bottom sheet with a large speak
   button (speech input that keeps listening through short pauses) with DE / EN beside it, one text field, the screen picture and a switch
   "attach the app state". Tap the picture to draw on it and set numbered pins with a note each (like "Mark screen"
