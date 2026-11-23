@@ -5,13 +5,18 @@ import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.job.JobInfo
+import android.app.job.JobScheduler
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
@@ -20,9 +25,11 @@ import android.os.Looper
 import android.view.PixelCopy
 import android.view.View
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
 /**
@@ -42,6 +49,15 @@ object Papercuts {
         /** After a send while the relay is out of reach: the report waits on the phone. */
         val queued: String = "Saved on the phone. It goes out when the relay is reachable.",
         val queuedToken: String = "Saved on the phone. Set the papercuts token, then it goes out.",
+        /** Right after Send: the report is safe on the phone, the send runs in the background. */
+        val saved: String = "Saved. It is sent in the background.",
+        /** After [saved] or [queued] when more than one report waits. */
+        val waiting: (Int) -> String = { n -> "$n reports wait." },
+        /** The silent notification when a report is filed after the sheet closed. */
+        val filed: (Int) -> String = { n -> "Papercut filed as #$n" },
+        /** The notification when the relay refused a report after the sheet closed; the error follows. */
+        val refused: String = "Papercut not taken: ",
+        val sentChannel: String = "Papercuts sent",
         val draftTitle: String = "Papercut: what happened?",
         val draftText: String = "The state is saved. Tap to add a sentence.",
         val channel: String = "Papercuts",
@@ -92,13 +108,18 @@ object Papercuts {
         val accent: Int = 0xFFD13438.toInt(),
         /** The first language of speech input, for example "de-DE", until the person picks DE or EN; null = the phone. */
         val speechLang: String? = null,
+        /** The job ids of the background send ([jobId] and [jobId] + 1). Change them only if the app uses them. */
+        val jobId: Int = 0x50430000,
     )
 
     private lateinit var app: Context
     private lateinit var config: Config
     private lateinit var log: EventLog
     private lateinit var outbox: Outbox
+    private lateinit var delivery: Delivery
     private lateinit var drafts: File
+    /** The open sheets: they show what became of their report. Every other answer becomes a notification. */
+    private val watchers = ConcurrentHashMap<String, (Sent) -> Unit>()
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private var started = false
@@ -111,6 +132,7 @@ object Papercuts {
         val root = File(app.filesDir, "papercuts")
         log = EventLog(File(root, "events.jsonl"))
         outbox = Outbox(File(root, "outbox"))
+        delivery = Delivery(outbox, config.relayUrl, config.token, delivered = { d -> main.post { delivered(d) } }, plan = ::plan)
         drafts = File(root, "drafts")
         started = true
         try {
@@ -119,7 +141,7 @@ object Papercuts {
                 override fun onAvailable(network: Network) = flush()
             })
         } catch (_: Exception) {
-            // without ACCESS_NETWORK_STATE: flush only on start and on send
+            // Without ACCESS_NETWORK_STATE: send on start, on Send and from the background job.
         }
         flush()
     }
@@ -137,13 +159,64 @@ object Papercuts {
     }
 
     /** Number of waiting reports and the last send error, for a settings summary. */
-    fun outboxStatus(): Pair<Int, String?> = if (started) outbox.pending().size to outbox.lastError else 0 to null
+    fun outboxStatus(): Pair<Int, String?> = status().let { it.waiting to it.lastError }
 
+    /** Waiting reports, the last send error and the time of the last try. Reads files: not on the main thread in a loop. */
+    fun status(): OutboxStatus = if (started) outbox.status() else OutboxStatus(0, null, null)
+
+    /** Sends the waiting reports in the background, for example after the token was set. Never blocks. */
     fun flush() {
-        if (!started) return
-        val url = config.relayUrl()
-        val token = config.token()
-        io.execute { outbox.flush(url, token) }
+        if (started) delivery.request()
+    }
+
+    internal fun deliverNow(finished: () -> Unit) = delivery.request(finished = finished)
+
+    /** Plans the background job for the next try, or cancels it when nothing waits. */
+    private fun plan(next: Delivery.Next?) {
+        val js = app.getSystemService(JobScheduler::class.java) ?: return
+        if (next == null) {
+            js.cancel(config.jobId)
+            js.cancel(config.jobId + 1)
+            return
+        }
+        val persist = app.checkSelfPermission(Manifest.permission.RECEIVE_BOOT_COMPLETED) == PackageManager.PERMISSION_GRANTED
+        fun job(id: Int) = JobInfo.Builder(id, ComponentName(app, OutboxJob::class.java)).setPersisted(persist)
+        try {
+            js.schedule(job(config.jobId).setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setMinimumLatency(next.delayMs).build())
+            // On mobile data the relay is out of reach. A network without a meter (the home WLAN) tries at once,
+            // also while the app is closed. Not on a WLAN already: there that job would start again and again.
+            val metered = try { app.getSystemService(ConnectivityManager::class.java).isActiveNetworkMetered } catch (_: Exception) { false }
+            if (metered) js.schedule(job(config.jobId + 1).setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED).build())
+            else js.cancel(config.jobId + 1)
+        } catch (_: Exception) {
+            // OutboxJob is not in the manifest of the app: send only while it runs.
+        }
+    }
+
+    /** An open sheet hears the answer. Without one, a filed or refused report becomes a silent notification. */
+    private fun delivered(d: Outbox.Delivered) {
+        watchers[d.id]?.let { return it(d.sent) }
+        if (d.sent.outcome == SendOutcome.KEEP) return
+        val nm = app.getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel("papercuts_sent", config.strings.sentChannel, NotificationManager.IMPORTANCE_LOW))
+        if (Build.VERSION.SDK_INT >= 33 && app.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        if (!NotificationManagerCompat.from(app).areNotificationsEnabled()) return
+        val filed = d.sent.outcome == SendOutcome.DONE
+        val title = if (filed) config.strings.filed(d.sent.issue ?: 0) else config.strings.refused + d.sent.error
+        val text = d.text.take(200) + if (filed || d.sent.help.isEmpty()) "" else " (${d.sent.help})"
+        val b = NotificationCompat.Builder(app, "papercuts_sent")
+            .setSmallIcon(config.notificationIcon)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setAutoCancel(true)
+        d.sent.url?.let { url ->
+            val open = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            b.setContentIntent(PendingIntent.getActivity(app, d.id.hashCode(), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+        }
+        nm.notify("papercuts-sent", d.id.hashCode(), b.build())
     }
 
     /**
@@ -185,26 +258,47 @@ object Papercuts {
         app.getSystemService(NotificationManager::class.java).cancel(d.id.hashCode())
     }
 
-    /** Puts the report into the outbox and sends it as soon as the relay answers. */
+    /** Puts the report into the outbox and sends it in the background as soon as the relay answers. */
     fun send(draft: Draft, text: String, withState: Boolean, kind: String = "other") =
-        send(draft, text, withState, kind, if (withState) draft.shot else null, emptyList(), null)
+        send(draft, text, withState, kind, if (withState) draft.shot else null, emptyList(), null, null)
 
     /**
-     * Puts the report into the outbox and tries to send it now. [done] hears on the main thread what became of it:
-     * filed (with the issue), refused (with the error) or waiting (KEEP; [Sent.error] says why).
+     * Puts the report into the outbox and sends it in the background; nothing here waits for the network.
+     * [saved] runs on the main thread as soon as the report is safe on the phone (a few milliseconds).
+     * Until [unwatch], [done] hears on the main thread what became of it: filed (with the issue), refused (with the
+     * error) or still waiting (KEEP, [Sent.error] says why). An answer after [unwatch] becomes a notification.
      */
-    fun send(draft: Draft, text: String, withState: Boolean, kind: String, shot: ByteArray?, pins: List<String>, done: ((Sent) -> Unit)?) {
-        val payload = ReportPayload.build(draft, config.repo, text, kind, withState, shot, pins)
+    fun send(
+        draft: Draft,
+        text: String,
+        withState: Boolean,
+        kind: String,
+        shot: ByteArray?,
+        pins: List<String>,
+        saved: (() -> Unit)?,
+        done: ((Sent) -> Unit)?,
+    ) {
         event("papercut_sent", "state" to withState, "shot" to (shot != null))
-        val url = config.relayUrl()
-        val token = config.token()
+        if (done != null) watchers[draft.id] = done
         io.execute {
-            outbox.add(draft.id, payload)
-            main.post { dropDraft(draft) }
-            val sent = outbox.send(url, token)[draft.id] ?: Sent(SendOutcome.KEEP, 0, error = outbox.lastError.orEmpty())
-            if (done != null) main.post { done(sent) }
+            outbox.add(draft.id, ReportPayload.build(draft, config.repo, text, kind, withState, shot, pins))
+            main.post {
+                dropDraft(draft)
+                saved?.invoke()
+            }
+            // A fallback while this process lives: if it dies during the first try, the job sends the report.
+            plan(Delivery.Next(60_000))
+            delivery.request(first = draft.id)
         }
     }
+
+    /** The sheet of [id] closed: a later answer becomes a notification. */
+    fun unwatch(id: String) {
+        watchers.remove(id)
+    }
+
+    /** True when a send now has a token and a relay; without them the report waits on the phone. */
+    fun canSend(): Boolean = started && !config.token().isNullOrBlank() && config.relayUrl().isNotBlank()
 
     /**
      * The report sheet. Without a [draft] it captures one first (screenshot before the sheet covers the screen).

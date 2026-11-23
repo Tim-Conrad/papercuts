@@ -1,5 +1,5 @@
 // Browser check harness: fake GitHub, the relay behind a mode switch, and a test page on a second origin.
-// Prints one JSON line with the URLs. Control: GET <control>/mode?m=ok|down|redirect, GET <control>/issues.
+// Prints one JSON line with the URLs. Control: GET <control>/mode?m=ok|down|hang|slow|refuse|redirect, GET <control>/issues.
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
@@ -16,6 +16,14 @@ const handler = relay.listeners('request')[0];
 let mode = 'ok';
 const front = http.createServer((req, res) => {
   if (mode === 'down') return req.socket.destroy();
+  // hang: the relay takes the report and never answers, like a relay behind a network that drops the packets.
+  if (mode === 'hang' && req.url.startsWith('/report')) return;
+  // slow: the relay answers a report after 3 s. refuse: it refuses every report for good.
+  if (mode === 'slow' && req.url.startsWith('/report')) return setTimeout(() => handler(req, res), 3000);
+  if (mode === 'refuse' && req.url.startsWith('/report')) {
+    res.writeHead(400, { 'content-type': 'application/json', 'access-control-allow-origin': req.headers.origin || '*', 'access-control-allow-credentials': 'true' });
+    return res.end(JSON.stringify({ ok: false, retry: false, error: 'kind is unknown', help: 'use one of the kinds' }));
+  }
   // nolist: the relay refuses the list, as it does for an origin outside PAPERCUTS_ORIGINS.
   if (mode === 'nolist' && req.url.startsWith('/list')) {
     res.writeHead(403, { 'content-type': 'application/json', 'access-control-allow-origin': req.headers.origin || '*', 'access-control-allow-credentials': 'true' });

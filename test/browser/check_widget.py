@@ -9,6 +9,7 @@ import re
 import subprocess
 import urllib.parse
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -765,6 +766,97 @@ def mark_checks(browser, ctl, page_url, width):
     ctx.close()
 
 
+def bg_send_checks(browser, ctl, page_url, width):
+    """Send never holds the panel: it answers once the report is in the queue, the send runs in the background."""
+    control(ctl, "/mode?m=ok")
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    status = host.locator(".status")
+
+    def send(text):
+        host.locator("textarea").fill(text)
+        t0 = time.monotonic()
+        host.locator("button.send").click()
+        try:
+            host.locator("button.another").wait_for(state="visible", timeout=3000)
+        except Exception:
+            return float("inf")  # the panel still waits for the relay
+        return time.monotonic() - t0
+
+    # The relay takes the report and never answers (the lab, out of reach).
+    before = len(issues(ctl))
+    control(ctl, "/mode?m=hang")
+    host.locator(".tab").click()
+    took = send(f"hanging relay one {width}")
+    check(f"{width}: hanging relay: the panel answers at once", took < 1.0, f"{took:.2f} s")
+    if took == float("inf"):
+        control(ctl, "/mode?m=ok")
+        return ctx.close()
+    check(f"{width}: hanging relay: it says the report is saved", "sent in the background" in status.inner_text(), status.inner_text())
+    host.locator("button.another").click()
+    took = send(f"hanging relay two {width}")
+    check(f"{width}: hanging relay: the next report answers at once too", took < 1.0, f"{took:.2f} s")
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('2 waiting')", timeout=3000)
+    check(f"{width}: the panel counts the waiting reports", "2 waiting" in status.inner_text(), status.inner_text())
+    check(f"{width}: the tab counts the waiting reports", host.locator(".tab .count").inner_text().strip() == "2", host.locator(".tab .count").inner_text())
+    # Later the relay is back: the queue goes out on the next start of the page, each report once.
+    control(ctl, "/mode?m=ok")
+    page.reload()
+    ready(page)
+    page.wait_for_function(f"{SHADOW}.querySelector('.tab .count').textContent === ''", timeout=10000)
+    texts = [i["title"] + i["body"] for i in issues(ctl)[before:]]
+    check(f"{width}: the queued reports are filed later, once each",
+          len(texts) == 2 and any(f"hanging relay one {width}" in x for x in texts) and any(f"hanging relay two {width}" in x for x in texts), str(len(texts)))
+
+    # A slow relay at home: the panel answers at once, and the issue link follows while it shows.
+    control(ctl, "/mode?m=slow")
+    host.locator(".tab").click()
+    took = send(f"slow relay {width}")
+    check(f"{width}: slow relay: the panel answers at once", took < 1.0, f"{took:.2f} s")
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').textContent.includes('#')", timeout=10000)
+    check(f"{width}: slow relay: the issue link follows", status.locator("a, b").count() == 1 and "Thank you" in status.inner_text(), status.inner_text())
+
+    # A refusal after the answer: the text comes back with the error, to change and send again.
+    control(ctl, "/mode?m=refuse")
+    if host.locator("button.another").is_visible():
+        host.locator("button.another").click()
+    else:
+        host.locator(".tab").click()
+    send(f"refused report {width}")
+    page.wait_for_function(f"{SHADOW}.querySelector('.status').classList.contains('err')", timeout=5000)
+    check(f"{width}: refused: the form comes back with the text",
+          host.locator("textarea").is_visible() and host.locator("textarea").input_value() == f"refused report {width}", host.locator("textarea").input_value())
+    check(f"{width}: refused: the panel says why", "kind is unknown" in status.inner_text(), status.inner_text())
+    control(ctl, "/mode?m=ok")
+    check(f"{width}: no page errors in background send checks", not errors, "; ".join(errors))
+    ctx.close()
+
+
+def hang_api_check(browser, ctl, page_url):
+    """papercuts.report() gives up on a relay that never answers and queues the report."""
+    ctx = browser.new_context(viewport={"width": 412, "height": 860})
+    page = ctx.new_page()
+    page.goto(page_url)
+    ready(page)
+    control(ctl, "/mode?m=hang")
+    t0 = time.monotonic()
+    r = page.evaluate("papercuts.report({kind: 'bug', text: 'api on a hanging relay', from: 'human'})")
+    took = time.monotonic() - t0
+    check("api: a hanging relay times out and the report is queued", r.get("queued") is True and took < 25, f"{took:.1f} s {r}")
+    control(ctl, "/mode?m=ok")
+    page.evaluate("papercuts.flush()")
+    for _ in range(50):
+        if page.evaluate("papercuts.status()").get("queued") == 0:
+            break
+        page.wait_for_timeout(200)
+    ctx.close()
+
+
 def main():
     harness = subprocess.Popen(["node", str(ROOT / "test/browser/harness.js")], stdout=subprocess.PIPE, text=True)
     try:
@@ -849,9 +941,12 @@ def main():
                 ctx.close()
 
             for width in (412, 1440):
-                for group in (v2_base_checks, sheet_checks, list_checks, parity_checks, v022_checks, v03_checks, speech_checks, lang_checks, review_checks, mark_checks):
+                for group in (v2_base_checks, sheet_checks, list_checks, parity_checks, v022_checks, v03_checks, speech_checks, lang_checks, review_checks, mark_checks, bg_send_checks):
                     if not only or group.__name__ in only:
                         group(browser, ctl, page_url, width)
+
+            if not only or "hang_api_check" in only:
+                hang_api_check(browser, ctl, page_url)
 
             control(ctl, "/mode?m=down")
             ctx = browser.new_context(viewport={"width": 412, "height": 860})

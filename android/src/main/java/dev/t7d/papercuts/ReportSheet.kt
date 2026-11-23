@@ -392,6 +392,18 @@ internal object ReportSheet {
             send.visibility = View.GONE
             doneRow.visibility = View.VISIBLE
         }
+        // The relay refused the report: the form comes back with the text, so the person can change it.
+        fun showForm() {
+            finished = false
+            dialog.setCanceledOnTouchOutside(text.text.isEmpty())
+            scroll.visibility = View.VISIBLE
+            send.visibility = View.VISIBLE
+            doneRow.visibility = View.GONE
+        }
+        fun waitingNote(msg: String): String {
+            val n = Papercuts.status().waiting
+            return if (n > 1) "$msg ${s.waiting(n)}" else msg
+        }
         fun submit() {
             val t = text.text.toString().trim()
             if (t.isEmpty()) {
@@ -401,9 +413,15 @@ internal object ReportSheet {
             }
             voice.stop()
             busy(true)
-            setStatus("info", s.sending)
-            Papercuts.send(draft, t, stateSwitch.isChecked, "other", shot, pins) { r ->
+            setStatus(null)
+            // The sheet answers as soon as the report is on the phone. The send runs in the background and
+            // updates the status while the sheet is open; after that, a notification says what became of it.
+            val canSend = Papercuts.canSend()
+            Papercuts.send(draft, t, stateSwitch.isChecked, "other", shot, pins, saved = {
                 busy(false)
+                if (canSend) setStatus("info", waitingNote(s.saved)) else setStatus("warn", s.queuedToken)
+                showDone()
+            }) { r ->
                 when (r.outcome) {
                     SendOutcome.DONE -> {
                         val msg = SpannableStringBuilder(s.thanks)
@@ -421,11 +439,11 @@ internal object ReportSheet {
                         showDone()
                         autoClose = Runnable { if (dialog.isShowing) close() }.also { main.postDelayed(it, 2500) }
                     }
-                    SendOutcome.KEEP -> {
-                        setStatus("warn", if (r.error == "no token") s.queuedToken else s.queued)
-                        showDone()
+                    SendOutcome.KEEP -> setStatus("warn", if (r.error == "no token") s.queuedToken else waitingNote(s.queued))
+                    SendOutcome.DROP -> {
+                        setStatus("err", "${s.notSent}${r.error}. ${r.help}".trim())
+                        showForm()
                     }
-                    SendOutcome.DROP -> setStatus("err", "${s.notSent}${r.error}. ${r.help}".trim())
                 }
             }
         }
@@ -438,6 +456,7 @@ internal object ReportSheet {
             if (!closing) {
                 closing = true
                 autoClose?.let { main.removeCallbacks(it) }
+                Papercuts.unwatch(draft.id)
                 voice.destroy()
                 pulse.cancel()
                 if (ValueAnimator.areAnimatorsEnabled() && sheet.height > 0) {
@@ -449,7 +468,7 @@ internal object ReportSheet {
         }
         scrim.setOnClickListener { if (text.text.isEmpty() || finished) close() }
         dialog.setOnCancelListener { voice.destroy(); autoClose?.let { main.removeCallbacks(it) } }
-        dialog.setOnDismissListener { voice.destroy(); pulse.cancel() }
+        dialog.setOnDismissListener { Papercuts.unwatch(draft.id); voice.destroy(); pulse.cancel() }
 
         showShot()
         textChanged()
