@@ -39,6 +39,13 @@ import java.util.concurrent.Executors
  * Call [init] once (Application.onCreate), [event] from the main thread.
  */
 object Papercuts {
+    /** The name of the attachment with the whole event log. */
+    const val EVENTS_LOG = "events.log"
+    /** The relay takes at most this many characters per attachment. */
+    private const val MAX_ATTACHMENT = 60_000
+    /** Lines of the log in the context of a report (readable in the issue itself). */
+    private const val TAIL = 40
+
     /** All words of the sheet. The defaults follow the English words of the web widget. */
     data class Strings(
         val title: String = "Report a papercut",
@@ -110,6 +117,10 @@ object Papercuts {
         val speechLang: String? = null,
         /** The job ids of the background send ([jobId] and [jobId] + 1). Change them only if the app uses them. */
         val jobId: Int = 0x50430000,
+        /** Event names that come in bursts (for example a list the car asks for): a run of them is one line with a count. */
+        val quietEvents: Set<String> = emptySet(),
+        /** Event names that open a block in events.log (for example `call_start`): a reader sees each call. */
+        val sectionEvents: Set<String> = emptySet(),
     )
 
     private lateinit var app: Context
@@ -152,7 +163,16 @@ object Papercuts {
         log.add(name, fields.toMap())
     }
 
-    fun recentEvents(): List<String> = if (started) log.recent().map { EventLog.format(it) } else emptyList()
+    /** The last [TAIL] lines of the compacted log: the `events` of the context. events.log has all of them. */
+    fun recentEvents(): List<String> = if (started) tail(lines(log.all())) else emptyList()
+
+    private fun lines(events: List<EventLog.Event>) = EventLog.compact(events, config.quietEvents, config.sectionEvents)
+
+    private fun tail(lines: List<String>) = lines.filter { it.isNotEmpty() && !it.startsWith("-- ") }.takeLast(TAIL)
+
+    /** The whole log of the device (24 h, every call), compacted, newest kept if it is too long. */
+    private fun eventsAttachment(events: List<EventLog.Event>, lines: List<String>): Attachment? =
+        if (events.isEmpty()) null else Attachment(EVENTS_LOG, EventLog.report(lines, events.size, MAX_ATTACHMENT))
 
     fun clearEvents() {
         if (started) log.clear()
@@ -224,10 +244,14 @@ object Papercuts {
      * the [hide] views are painted over (for example a WebView with a conversation). Answers on the main thread.
      */
     fun capture(activity: Activity?, where: String, state: StateProvider, hide: List<View> = emptyList(), done: (Draft) -> Unit) {
-        val events = recentEvents()
+        val all = if (started) log.all() else emptyList()
+        val lines = lines(all)
+        val log = eventsAttachment(all, lines)
         state.collect { s ->
-            val context = ReportPayload.context(s, events, config.base())
-            val finish: (ByteArray?) -> Unit = { shot -> main.post { done(Draft(where = where, context = context, attachments = s.attachments, shot = shot)) } }
+            val context = ReportPayload.context(s, tail(lines), config.base())
+            // The relay takes 3 attachments: events.log always goes, the app keeps 2.
+            val attachments = s.attachments.filter { it.name != EVENTS_LOG }.take(if (log == null) 3 else 2) + listOfNotNull(log)
+            val finish: (ByteArray?) -> Unit = { shot -> main.post { done(Draft(where = where, context = context, attachments = attachments, shot = shot)) } }
             if (activity == null) finish(null) else screenshot(activity, hide, finish)
         }
     }

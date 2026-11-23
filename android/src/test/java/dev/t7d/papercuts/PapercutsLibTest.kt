@@ -9,6 +9,7 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import java.util.Locale
+import java.util.TimeZone
 
 class PapercutsLibTest {
     private fun tmp(): File = Files.createTempDirectory("pc").toFile()
@@ -26,6 +27,64 @@ class PapercutsLibTest {
         assertEquals(3, EventLog(f, maxAgeMs = 10_000, clock = { now }).recent().size)
         now += 20_000
         assertEquals(0, EventLog(f, maxAgeMs = 10_000, clock = { now }).recent().size)
+    }
+
+    @Test fun eventLogKeepsTheWholeDayAndRewritesRarely() {
+        var now = 1_000_000L
+        val f = File(tmp(), "e.jsonl")
+        val log = EventLog(f, maxAgeMs = 24 * 3600_000L, maxCount = 100, clock = { now })
+        repeat(250) { log.add("e$it", emptyMap()); now += 60_000 }
+        // exact limits on read, the file keeps at most a tenth more
+        assertEquals(100, log.all().size)
+        assertEquals("e249", log.all().last().name)
+        assertTrue(f.readLines().size in 100..110)
+        assertEquals(100, EventLog(f, maxAgeMs = 24 * 3600_000L, maxCount = 100, clock = { now }).all().size)
+    }
+
+    private val utc = TimeZone.getTimeZone("UTC")
+    private fun ev(sec: Int, name: String, vararg f: Pair<String, String>) = EventLog.Event(sec * 1000L, name, linkedMapOf(*f))
+
+    @Test fun compactCountsRepeatsAndMarksCalls() {
+        val events = listOf(
+            ev(10, "aa_list", "folder" to "start"), ev(11, "aa_list", "folder" to "start"), ev(12, "aa_list", "folder" to "chats"),
+            ev(20, "call_start", "source" to "aa_chat", "audio" to "hfp"),
+            ev(21, "net", "n" to "wlan"), ev(25, "net", "n" to "wlan"), ev(26, "net", "n" to "mobil"),
+            ev(30, "start_try", "n" to "1"), ev(31, "start_try", "n" to "2"),
+            ev(40, "aa_list", "folder" to "start"),
+            ev(50, "call_start", "source" to "aa_play", "audio" to "media"),
+        )
+        val lines = EventLog.compact(events, quiet = setOf("aa_list"), sections = setOf("call_start"), zone = utc)
+        assertEquals(
+            listOf(
+                "-- 1970-01-01 --",
+                "00:00:10 aa_list ×3 until 00:00:12: folder=start ×2, folder=chats",
+                "",
+                "## 00:00:20 call_start source=aa_chat audio=hfp",
+                "00:00:21 net n=wlan ×2 until 00:00:25",
+                "00:00:26 net n=mobil",
+                // not quiet: different fields stay separate lines
+                "00:00:30 start_try n=1",
+                "00:00:31 start_try n=2",
+                "00:00:40 aa_list folder=start",
+                "",
+                "## 00:00:50 call_start source=aa_play audio=media",
+            ),
+            lines,
+        )
+        // a new day gets its own line
+        val two = EventLog.compact(listOf(ev(10, "a"), ev(86_400 + 5, "b")), zone = utc)
+        assertEquals(listOf("-- 1970-01-01 --", "00:00:10 a", "-- 1970-01-02 --", "00:00:05 b"), two)
+    }
+
+    @Test fun reportKeepsTheNewestLinesWhenTooLong() {
+        val lines = (1..5000).map { "12:00:00 event n=$it with some text" }
+        val text = EventLog.report(lines, 5000, 60_000)
+        assertTrue(text.length <= 60_000)
+        assertTrue(text.contains("Cut: the "))
+        assertTrue(text.trimEnd().endsWith("n=5000 with some text"))
+        assertFalse(text.contains("n=1 with"))
+        val short = EventLog.report(listOf("a", "b"), 2, 60_000)
+        assertEquals("# 2 events of the last 24 h on this device, oldest first. Repeats are counted (×n).\na\nb\n", short)
     }
 
     @Test fun eventFormat() {
