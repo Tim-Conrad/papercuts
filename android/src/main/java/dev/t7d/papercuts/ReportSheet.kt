@@ -3,6 +3,7 @@ package dev.t7d.papercuts
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.Dialog
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
@@ -37,6 +38,7 @@ import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import java.util.Locale
 
 /**
  * The report sheet: the phone layout of the web widget. A bottom sheet with a large speak button, one text field,
@@ -122,13 +124,47 @@ internal object ReportSheet {
             addView(ring, FrameLayout.LayoutParams(k.dp(76), k.dp(76), Gravity.CENTER))
             addView(speak, FrameLayout.LayoutParams(k.dp(76), k.dp(76), Gravity.CENTER))
         }
+        // DE or EN beside the speak button, like the web widget. One tap; the phone keeps the choice.
+        val prefs = activity.getSharedPreferences(SpeechLang.PREFS, Context.MODE_PRIVATE)
+        var lang = SpeechLang.initial(prefs.getString(SpeechLang.KEY, null), config.speechLang, Locale.getDefault())
+        val langButtons = SpeechLang.CHOICES.map { (l, name) ->
+            l to k.text(activity, l.uppercase(Locale.ROOT), 13f, k.muted, 650).apply {
+                gravity = Gravity.CENTER
+                minWidth = k.dp(44)
+                setPadding(k.dp(8), 0, k.dp(8), 0)
+                letterSpacing = 0.02f
+                contentDescription = name
+                isClickable = true
+            }
+        }
+        fun showLang() = langButtons.forEach { (l, b) ->
+            val on = l == lang
+            b.isSelected = on
+            b.setTextColor(if (on) k.bg else k.muted)
+            b.background = k.pressable(k.round(if (on) k.ink else Color.TRANSPARENT, 999))
+        }
+        val langs = k.row(activity, 2).apply {
+            setPadding(k.dp(2), k.dp(2), k.dp(2), k.dp(2))
+            background = k.round(k.bg, 999, k.line)
+            langButtons.forEach { (_, b) -> addView(b, lp(WRAP, k.dp(40))) }
+        }
+        showLang()
+        val speakRow = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            clipChildren = false
+            addView(View(activity), lp(0, k.dp(1), 1f))
+            addView(speakBox, LinearLayout.LayoutParams(k.dp(120), k.dp(96)))
+            addView(FrameLayout(activity).apply {
+                addView(langs, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.START or Gravity.CENTER_VERTICAL))
+            }, lp(0, WRAP, 1f))
+        }
         val speakLabel = k.text(activity, s.speak, 13f, k.ink, 600).apply { gravity = Gravity.CENTER }
         val speakWrap = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             clipChildren = false
             setPadding(0, k.dp(6), 0, k.dp(2))
-            addView(speakBox, LinearLayout.LayoutParams(k.dp(120), k.dp(96)))
+            addView(speakRow, lp(MATCH, WRAP))
             addView(speakLabel)
             addView(k.text(activity, s.typeInstead, 12f, k.muted).apply { gravity = Gravity.CENTER; setPadding(0, k.dp(4), 0, 0) })
         }
@@ -311,7 +347,7 @@ internal object ReportSheet {
 
         // ---- behavior ----
         var autoClose: Runnable? = null
-        val voice = Voice(activity, s, config.speechLang, current = { text.text.toString() },
+        val voice = Voice(activity, s, SpeechLang.tag(lang, config.speechLang), current = { text.text.toString() },
             show = { t -> text.setText(t); text.setSelection(t.length) },
             listening = { on ->
                 speakLabel.text = if (on) s.listening else s.speak
@@ -321,6 +357,15 @@ internal object ReportSheet {
             },
             problem = { m -> setStatus("warn", m) })
         speak.setOnClickListener { voice.toggle() }
+        langButtons.forEach { (l, b) ->
+            b.setOnClickListener {
+                if (l == lang) return@setOnClickListener
+                lang = l
+                prefs.edit().putString(SpeechLang.KEY, l).apply()
+                showLang()
+                voice.relang(SpeechLang.tag(l, config.speechLang))
+            }
+        }
 
         fun textChanged() {
             val n = text.text.length

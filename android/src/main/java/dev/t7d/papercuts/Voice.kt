@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import java.util.Locale
 
 /**
  * Speech input like the web widget: the words show live, a pause to think does not end it. The input starts again
@@ -17,7 +18,7 @@ import android.speech.SpeechRecognizer
 internal class Voice(
     private val activity: Activity,
     private val strings: Papercuts.Strings,
-    private val lang: String?,
+    lang: String,
     /** The text before the speech started. */
     private val current: () -> String,
     private val show: (String) -> Unit,
@@ -30,6 +31,11 @@ internal class Voice(
     private var lastWords = 0L
     private var base = ""
     private var done = ""
+    private var relang = false
+
+    /** The language tag of the input, for example "de-DE". */
+    var lang = lang
+        private set
 
     val active get() = !stopped
 
@@ -57,6 +63,14 @@ internal class Voice(
         listening(false)
     }
 
+    /** A new language: the words so far stay, a running input goes on in the new language. */
+    fun relang(tag: String) {
+        lang = tag
+        if (stopped) return
+        relang = true
+        rec?.stopListening()
+    }
+
     fun destroy() {
         stopped = true
         rec?.destroy()
@@ -69,7 +83,7 @@ internal class Voice(
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, activity.packageName)
-        if (!lang.isNullOrBlank()) intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
         try {
             r.startListening(intent)
         } catch (_: Exception) {
@@ -85,6 +99,10 @@ internal class Voice(
 
     /** One round ended: listen again unless the person stopped or was silent too long. */
     private fun ended() {
+        if (relang && !stopped) {
+            relang = false
+            lastWords = SystemClock.elapsedRealtime()
+        }
         if (!stopped && SystemClock.elapsedRealtime() - lastWords < SILENCE_MS) return listen()
         val silent = !stopped && !heard
         stopped = true
@@ -149,4 +167,26 @@ internal class Voice(
             false
         }
     }
+}
+
+/**
+ * The language of speech input: German or English, picked next to the speak button and kept on the device.
+ * Until the person picks one: the app's [Papercuts.Config.speechLang], else the language of the phone.
+ */
+internal object SpeechLang {
+    const val PREFS = "papercuts"
+    const val KEY = "speech_lang"
+    val CHOICES = listOf("de" to "Deutsch", "en" to "English")
+
+    private fun base(tag: String) = tag.lowercase(Locale.ROOT).substringBefore('-').substringBefore('_')
+
+    fun initial(stored: String?, configured: String?, system: Locale): String {
+        if (stored == "de" || stored == "en") return stored
+        val from = configured?.takeIf { it.isNotBlank() } ?: system.toLanguageTag()
+        return if (base(from) == "de") "de" else "en"
+    }
+
+    /** The configured tag when it is the chosen language (for example "de-AT"), else a plain one. */
+    fun tag(choice: String, configured: String?): String =
+        configured?.takeIf { it.isNotBlank() && base(it) == choice } ?: if (choice == "de") "de-DE" else "en-US"
 }

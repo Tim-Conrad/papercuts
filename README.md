@@ -50,7 +50,7 @@ Optional attributes on the script tag:
 | --- | --- |
 | `data-repo` | Required. The repo for the issues, as `owner/name`. |
 | `data-lang` | The language of the widget: `en` (default), `de`, or a language that the site adds (see below). The JS API answers in English. |
-| `data-speech-lang` | The language for speech input, for example `de-DE`. Default: the `lang` of the page. |
+| `data-speech-lang` | The first language for speech input, for example `de-DE`, until the person picks DE or EN. Default: `data-lang`, the repo config, the `lang` of the page, the browser language. |
 | `data-commit`, `data-branch` | The version of the site. The issue shows them. |
 | `data-storage` | A comma list of `localStorage` keys to include, or `*` for all keys (at most 50). By default the widget sends no `localStorage`, because it can hold tokens or private data. |
 | `data-storage-skip` | With `data-storage="*"`: a comma list of keys to leave out, for example a room code. |
@@ -110,7 +110,7 @@ For nginx, use two config files and let the entrypoint choose one, so that no ta
 
 ### Voice input
 
-On a touch screen with speech input, a large "Tap to speak" button leads the panel. The words show while you speak, and you can edit them. On desktop, the microphone is a small button in the text field. Speech uses `data-speech-lang`, else the `lang` of the page. Without speech input in the browser, the panel leads with the text field.
+On a touch screen with speech input, a large "Tap to speak" button leads the panel. The words show while you speak, and you can edit them. On desktop, the microphone is a small button in the text field. Next to the microphone, the person picks the speech language with one tap: DE or EN. The browser keeps the choice (`localStorage`, key `papercuts-speech-lang-v1`). A tap while the widget listens starts the input again in the new language, and the words so far stay. Until the first tap, the choice comes from `data-speech-lang`, `data-lang`, `lang` of the repo config, the `lang` of the page, then the browser language: German if it starts with `de`, else English. If that tag matches the choice (for example `de-AT`), speech uses it. Without speech input in the browser, the panel leads with the text field.
 
 ### Without a relay
 

@@ -513,6 +513,92 @@ def speech_checks(browser, ctl, page_url, width):
     ctx.close()
 
 
+# Each start() records the language. The first start says "the menu", the next "covers the button";
+# then it listens until stop(), as Chrome does while the person speaks.
+LANG_SPEECH = """
+window.__langs = []; window.__phrases = ['the menu', 'covers the button'];
+class LangSpeech { constructor() { this.lang = ''; }
+  start() { window.__langs.push(this.lang); const said = window.__phrases.shift();
+    if (said) setTimeout(() => { const a = [{ transcript: said }]; a.isFinal = true; this.onresult && this.onresult({ resultIndex: 0, results: [a] }); }, 30); }
+  stop() { setTimeout(() => this.onend && this.onend(), 10); } }
+window.SpeechRecognition = LangSpeech; window.webkitSpeechRecognition = LangSpeech;
+"""
+
+
+def lang_checks(browser, ctl, page_url, width):
+    """DE or EN next to the microphone: the default, one tap, kept on the device, a switch while listening."""
+    control(ctl, "/mode?m=ok")
+    checked = lambda scope: scope.locator(".langs button[aria-checked='true']").get_attribute("data-lang")
+
+    ctx = browser.new_context(viewport={"width": width, "height": 860})
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.add_init_script(LANG_SPEECH)
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    bar = host.locator(".fieldbar")
+    check(f"{width}: language choice next to the microphone", bar.locator(".langs").is_visible() and bar.locator(".langs button").count() == 2)
+    check(f"{width}: first speech language from the page", checked(bar) == "en", str(checked(bar)))
+    host.locator("button.mic").click()
+    page.wait_for_timeout(150)
+    bar.locator(".langs button[data-lang='de']").click()
+    page.wait_for_timeout(200)
+    check(f"{width}: a switch while listening starts again in German", page.evaluate("window.__langs") == ["en", "de-DE"], str(page.evaluate("window.__langs")))
+    check(f"{width}: the switch keeps listening", host.locator("button.mic").get_attribute("aria-pressed") == "true")
+    check(f"{width}: the switch keeps the words", host.locator("textarea").input_value() == "the menu covers the button", host.locator("textarea").input_value())
+    check(f"{width}: the choice shows at once", checked(bar) == "de", str(checked(bar)))
+    host.locator("button.mic").click()
+    page.wait_for_timeout(100)
+    check(f"{width}: the choice stays on the device", page.evaluate("localStorage.getItem('papercuts-speech-lang-v1')") == "de")
+    page.reload()
+    ready(page)
+    host.locator(".tab").click()
+    check(f"{width}: the choice is kept after a reload", checked(host.locator(".fieldbar")) == "de")
+    host.locator("button.mic").click()
+    page.wait_for_timeout(100)
+    check(f"{width}: speech starts in the kept language", page.evaluate("window.__langs") == ["de-DE"], str(page.evaluate("window.__langs")))
+    check(f"{width}: no page errors in language checks", not errors, "; ".join(errors))
+    ctx.close()
+
+    ctx = browser.new_context(viewport={"width": width, "height": 860}, locale="en-US")
+    page = ctx.new_page()
+    page.goto(page_url + "?lang=de")
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    check(f"{width}: data-lang=de makes German the first choice", checked(host.locator(".fieldbar")) == "de", str(checked(host.locator(".fieldbar"))))
+    check(f"{width}: the choice has a German name", host.locator(".fieldbar .langs").get_attribute("aria-label") == "Sprache der Spracheingabe")
+    ctx.close()
+
+    phone = browser.new_context(viewport={"width": width, "height": 860}, has_touch=True, is_mobile=width < 800)
+    page = phone.new_page()
+    page.add_init_script(LANG_SPEECH)
+    page.goto(page_url)
+    ready(page)
+    host = page.locator("papercuts-widget")
+    host.locator(".tab").click()
+    wrap = host.locator(".speakwrap")
+    langs, speak = wrap.locator(".langs"), host.locator("button.speak")
+    check(f"{width}: voice first: the choice sits beside the speak button", langs.is_visible() and host.locator(".fieldbar .langs").is_hidden())
+    page.wait_for_timeout(400)  # the sheet slides up first
+    lb, sb = langs.bounding_box(), speak.bounding_box()
+    beside = lb["x"] >= sb["x"] + sb["width"] and lb["y"] < sb["y"] + sb["height"] and lb["y"] + lb["height"] > sb["y"]
+    check(f"{width}: the choice is right of the speak button", beside, f"{lb} {sb}")
+    check(f"{width}: the language buttons are large enough to tap", lb["height"] >= 32, str(lb))
+    langs.locator("button[data-lang='de']").click()
+    speak.click()
+    page.wait_for_timeout(100)
+    check(f"{width}: voice first speaks in the chosen language", page.evaluate("window.__langs") == ["de-DE"], str(page.evaluate("window.__langs")))
+    langs.locator("button[data-lang='en']").click()
+    page.wait_for_timeout(200)
+    check(f"{width}: voice first switches while listening", page.evaluate("window.__langs") == ["de-DE", "en"] and speak.get_attribute("aria-pressed") == "true", str(page.evaluate("window.__langs")))
+    check(f"{width}: no horizontal scroll with the choice", not page.evaluate("document.documentElement.scrollWidth > innerWidth"))
+    phone.close()
+
+
 def active_in_widget(page):
     return page.evaluate("(() => { const r = document.querySelector('papercuts-widget').shadowRoot; const a = r.activeElement; return a ? (a.className || a.localName) : null; })()")
 
@@ -763,7 +849,7 @@ def main():
                 ctx.close()
 
             for width in (412, 1440):
-                for group in (v2_base_checks, sheet_checks, list_checks, parity_checks, v022_checks, v03_checks, speech_checks, review_checks, mark_checks):
+                for group in (v2_base_checks, sheet_checks, list_checks, parity_checks, v022_checks, v03_checks, speech_checks, lang_checks, review_checks, mark_checks):
                     if not only or group.__name__ in only:
                         group(browser, ctl, page_url, width)
 

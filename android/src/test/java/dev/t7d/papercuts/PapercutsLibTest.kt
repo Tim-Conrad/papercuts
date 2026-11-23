@@ -117,4 +117,18 @@ class PapercutsLibTest {
         assertTrue(o.send("https://relay.invalid", null).isEmpty())
         assertEquals("no token", o.lastError)
     }
+
+    @Test fun speechLanguageChoice() {
+        // The kept choice wins; then the app config; then the phone.
+        assertEquals("en", SpeechLang.initial("en", "de-DE", Locale.GERMANY))
+        assertEquals("de", SpeechLang.initial(null, "de-AT", Locale.US))
+        assertEquals("en", SpeechLang.initial(null, null, Locale.US))
+        assertEquals("de", SpeechLang.initial(null, "", Locale.GERMANY))
+        assertEquals("en", SpeechLang.initial("fr", "fr-FR", Locale.FRANCE))
+        // The configured tag when it fits the choice, else a plain one.
+        assertEquals("de-AT", SpeechLang.tag("de", "de-AT"))
+        assertEquals("en-US", SpeechLang.tag("en", "de-AT"))
+        assertEquals("de-DE", SpeechLang.tag("de", null))
+        assertEquals("en_GB", SpeechLang.tag("en", "en_GB"))
+    }
 }

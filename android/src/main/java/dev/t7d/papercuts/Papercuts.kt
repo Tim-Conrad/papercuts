@@ -90,7 +90,7 @@ object Papercuts {
         val notificationIcon: Int = android.R.drawable.stat_notify_error,
         /** The one color of the sheet, like data-accent of the web widget. */
         val accent: Int = 0xFFD13438.toInt(),
-        /** The language of speech input, for example "de-DE"; null = the language of the phone. */
+        /** The first language of speech input, for example "de-DE", until the person picks DE or EN; null = the phone. */
         val speechLang: String? = null,
     )
 
