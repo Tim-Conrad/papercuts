@@ -123,9 +123,12 @@ A native app has no origin and no login session, so it reports to `POST /app-rep
 ```text
 # label        token (at least 32 characters)          repos it may report to
 claude-auto    <random token>                          Tim-Conrad/claude-auto
+organizer      <random token>                          Tim-Conrad/organizer     agent
 ```
 
-A missing file means that no app may report. A report from an app is always `from: human`: a person filed it on purpose. Apps never file papercuts by themselves; they only attach their state to a report that a person sends.
+A missing file means that no app may report. A report from an app is `from: human`: a person filed it on purpose. Apps do not file papercuts by themselves; they only attach their state to a report that a person sends.
+
+The one exception is a server that reports its own lasting problems, for example a library card that could not be read for days. Its line ends with the word `agent`, and it sends `"from": "agent"` next to `report`. The server must file one papercut per problem, not one per failure. Without `agent` on the line, the relay files every report as `from: human`.
 
 A report the relay cannot file because of its own setup answers `retry: true`, so the app keeps it and sends it again later: the token may not report to that repo, the repo is not in `PAPERCUTS_REPOS`, or GitHub answers 401, 403 or 404 (the relay's credential cannot see the repo). A bad report (wrong kind, empty text, too large) stays final. `/report` keeps `retry: false` for these, as before.
 

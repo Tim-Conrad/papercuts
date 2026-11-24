@@ -51,7 +51,9 @@ export function readAppTokens(path) {
   let text;
   try { text = readFileSync(path, 'utf8'); } catch { return []; }
   return text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')).map((l) => l.split(/\s+/))
-    .filter((p) => p.length === 3 && p[1].length >= 32).map(([label, token, repos]) => ({ label, token, repos: list(repos) }));
+    // A fourth word "agent": a server that files its own lasting problems may send from: agent.
+    .filter((p) => (p.length === 3 || (p.length === 4 && p[3] === 'agent')) && p[1].length >= 32)
+    .map(([label, token, repos, role]) => ({ label, token, repos: list(repos), agent: role === 'agent' }));
 }
 
 // With the local store, the relay runs next to a dev server: localhost origins and any repo name by default.
