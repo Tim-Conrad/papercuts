@@ -147,8 +147,10 @@ export function createRelay(config, { client }) {
       const raw = Buffer.concat(chunks).toString('utf8');
       let payload;
       try { payload = JSON.parse(raw); } catch { return send(400, { ok: false, error: 'body is not JSON', help: 'send {"from":"human","report":{...}}' }); }
-      // An app reports for a person: never as an agent, so no +1 merging of different reports.
-      const norm = normalizeReport(payload?.report, isApp ? 'human' : payload?.from ?? 'human');
+      // An app reports for a person: never as an agent, so no +1 merging of different reports. Only a token
+      // with "agent" on its line (a server that files its own lasting problems) may send from: agent.
+      const appFrom = app?.agent && payload?.from === 'agent' ? 'agent' : 'human';
+      const norm = normalizeReport(payload?.report, isApp ? appFrom : payload?.from ?? 'human');
       if (!norm.ok) return send(400, { ...norm, retry: false });
       if (app && !repoAllowed(norm.report.repo, app.repos)) {
         return send(403, { ok: false, retry: true, error: `the token of ${app.label} may not report to ${norm.report.repo}`, help: 'add the repo to its line in PAPERCUTS_APP_TOKENS_FILE; the app keeps the report' });

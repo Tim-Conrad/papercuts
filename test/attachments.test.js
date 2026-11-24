@@ -14,13 +14,14 @@ import { run } from '../src/cli.js';
 
 const TOKEN = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
+const SERVER = 'd'.repeat(40);
 let gh, client, relay, base, dir;
 
 beforeEach(async () => {
   gh = await fakeGithub();
   client = githubClient({ credential: { token: async () => gh.token, describe: () => 't' }, apiBase: gh.apiBase });
   dir = mkdtempSync(join(tmpdir(), 'pc-app-'));
-  writeFileSync(join(dir, 'tokens'), `# label token repos\nclaude-auto ${TOKEN} Tim-Conrad/claude-auto\nshort tooshort Tim-Conrad/x\nother ${OTHER} Tim-Conrad/other,Tim-Conrad/shop\n`);
+  writeFileSync(join(dir, 'tokens'), `# label token repos\nclaude-auto ${TOKEN} Tim-Conrad/claude-auto\nshort tooshort Tim-Conrad/x\nother ${OTHER} Tim-Conrad/other,Tim-Conrad/shop\nserver ${SERVER} Tim-Conrad/claude-auto agent\nodd ${'e'.repeat(40)} Tim-Conrad/x admin\n`);
   const config = loadConfig({ PAPERCUTS_REPOS: 'Tim-Conrad/*', PAPERCUTS_SHOTS_DIR: join(dir, 'shots'), PAPERCUTS_PUBLIC_URL: 'https://papercuts.lab.example', PAPERCUTS_APP_TOKENS_FILE: join(dir, 'tokens') });
   relay = createRelay(config, { client });
   await new Promise((r) => relay.listen(0, '127.0.0.1', r));
@@ -54,7 +55,8 @@ test('attachments are checked: name, count, size', () => {
 
 test('app tokens: short tokens are ignored, a missing file means none', () => {
   const t = readAppTokens(join(dir, 'tokens'));
-  assert.deepEqual(t.map((x) => x.label), ['claude-auto', 'other']);
+  assert.deepEqual(t.map((x) => x.label), ['claude-auto', 'other', 'server']);
+  assert.deepEqual(t.map((x) => x.agent), [false, false, true]);
   assert.deepEqual(readAppTokens(join(dir, 'nope')), []);
   assert.deepEqual(readAppTokens(''), []);
   assert.equal(appFor(`Bearer ${TOKEN}`, t).label, 'claude-auto');
@@ -106,6 +108,17 @@ test('/app-report: a bad report is still final (retry false)', async () => {
 test('/app-report ignores a claimed agent source', async () => {
   const res = await appPost({ from: 'agent', ...report() });
   assert.equal(res.status, 200);
+  assert.match(issues()[0].body, /from: human/);
+});
+
+test('/app-report: a token with "agent" on its line may file as an agent', async () => {
+  const res = await appPost({ from: 'agent', ...report() }, { token: SERVER });
+  assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+  assert.match(issues()[0].body, /from: agent/);
+});
+
+test('/app-report: an agent token without a from field still files as human', async () => {
+  assert.equal((await appPost(report(), { token: SERVER })).status, 200);
   assert.match(issues()[0].body, /from: human/);
 });
 
