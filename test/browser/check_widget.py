@@ -863,8 +863,11 @@ def main():
         urls = json.loads(harness.stdout.readline())
         page_url, ctl = urls["page"], urls["control"]
         with sync_playwright() as p:
-            # the full Chromium of the dev shell (PLAYWRIGHT_BROWSERS_PATH), not the headless shell
-            browser = p.chromium.launch(channel="chromium", headless=True)
+            # the full Chromium of the dev shell (PLAYWRIGHT_BROWSERS_PATH), not the headless shell.
+            # It brings its own libraries: an LD_LIBRARY_PATH of the host profile (for example an
+            # alsa-lib built for a newer glibc) stops it at start, so the browser does not get one.
+            env = {k: v for k, v in os.environ.items() if k != "LD_LIBRARY_PATH"}
+            browser = p.chromium.launch(channel="chromium", headless=True, env=env)
             only = [x for x in os.environ.get("CHECKS", "").split(",") if x]
             for width in (() if only else (412, 1440)):
                 control(ctl, "/mode?m=ok")
